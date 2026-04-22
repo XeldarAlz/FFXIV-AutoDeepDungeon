@@ -52,15 +52,17 @@ public sealed class WorldOverlay : IDisposable
     private static readonly uint ColorTrap         = Rgba(255, 40,  40,  230);
     private static readonly uint ColorHoard        = Rgba(255, 220, 40,  230);
 
-    // Live scan and PalacePal-persistent data both have coordinates for the same traps;
-    // a ~3y tolerance collapses them to a single marker (PalacePal-style rendering).
-    private const float DedupDistSq = 9f;
+    // Live scan + PalacePal-persistent + PalacePal's own duplicate entries can all plant
+    // coordinates for the same physical trap. ~5y tolerance collapses them to one marker
+    // (PalacePal-style rendering).
+    private const float DedupDistSq = 25f;
     private static readonly uint ColorCoffer       = Rgba(255, 255, 255, 220);
     private static readonly uint ColorPassageOn    = Rgba(64,  255, 64,  235);
     private static readonly uint ColorPassageOff   = Rgba(160, 160, 160, 180);
 
     private readonly record struct LiveMob(Vector3 Position, float Rotation, bool IsMimic);
     private static readonly List<LiveMob> liveMobs = new();
+    private static readonly List<Vector3> drawnPersistent = new();
 
     private static void Draw()
     {
@@ -137,14 +139,18 @@ public sealed class WorldOverlay : IDisposable
     {
         var rangeSq = PersistentDrawRange * PersistentDrawRange;
 
+        drawnPersistent.Clear();
         foreach (var t in floor.Traps)
+        {
             DrawCircleWorld(dl, t.Position, 1.5f, ColorTrap, ThicknessOutline, SegMarker);
-
+            drawnPersistent.Add(t.Position);
+        }
         foreach (var p in floor.PersistentTraps)
         {
             if (Vector3.DistanceSquared(self, p) > rangeSq) continue;
-            if (IsCoveredByLive(p, floor.Traps)) continue;
+            if (IsNearDrawn(p)) continue;
             DrawCircleWorld(dl, p, 1.5f, ColorTrap, ThicknessOutline, SegMarker);
+            drawnPersistent.Add(p);
         }
     }
 
@@ -152,21 +158,25 @@ public sealed class WorldOverlay : IDisposable
     {
         var rangeSq = PersistentDrawRange * PersistentDrawRange;
 
+        drawnPersistent.Clear();
         foreach (var h in floor.Hoards)
+        {
             DrawCircleWorld(dl, h.Position, 1.0f, ColorHoard, ThicknessOutline, SegMarker);
-
+            drawnPersistent.Add(h.Position);
+        }
         foreach (var p in floor.PersistentHoards)
         {
             if (Vector3.DistanceSquared(self, p) > rangeSq) continue;
-            if (IsCoveredByLive(p, floor.Hoards)) continue;
+            if (IsNearDrawn(p)) continue;
             DrawCircleWorld(dl, p, 1.0f, ColorHoard, ThicknessOutline, SegMarker);
+            drawnPersistent.Add(p);
         }
     }
 
-    private static bool IsCoveredByLive(Vector3 point, IReadOnlyList<EObjEntity> live)
+    private static bool IsNearDrawn(Vector3 point)
     {
-        foreach (var e in live)
-            if (Vector3.DistanceSquared(e.Position, point) < DedupDistSq) return true;
+        foreach (var prev in drawnPersistent)
+            if (Vector3.DistanceSquared(prev, point) < DedupDistSq) return true;
         return false;
     }
 
@@ -184,34 +194,22 @@ public sealed class WorldOverlay : IDisposable
     }
 
     /// <summary>
-    /// Stroke a horizontal circle as a single closed polyline. Points the camera can't
-    /// project are skipped; the closing segment spans any gap as a chord. That looks
-    /// better than fragmenting the shape when part of the circle crosses the camera's
-    /// view edge (user-reported: "half circle missing when the trap is near the
-    /// screen edge").
+    /// Draws a screen-space circle at <paramref name="center"/>'s projected position.
+    /// The screen radius is derived from a second world sample so the marker scales with
+    /// camera distance, and ImGui's native clipping handles screen edges cleanly — no
+    /// more half-rendered circles when a trap sits at the edge of the viewport.
     /// </summary>
     private static void DrawCircleWorld(ImDrawListPtr dl, Vector3 center, float radius,
                                         uint color, float thickness, int segments)
     {
-        var pointCount = 0;
-        for (var i = 0; i < segments; i++)
-        {
-            var angle = i * MathF.Tau / segments;
-            var world = new Vector3(
-                center.X + MathF.Sin(angle) * radius,
-                center.Y,
-                center.Z + MathF.Cos(angle) * radius);
-
-            if (Svc.GameGui.WorldToScreen(world, out var scr))
-            {
-                dl.PathLineTo(scr);
-                pointCount++;
-            }
-        }
-        if (pointCount >= 2)
-            dl.PathStroke(color, ImDrawFlags.Closed, thickness);
-        else
-            dl.PathClear();
+        if (!Svc.GameGui.WorldToScreen(center, out var centerScr)) return;
+        // Sample a point one radius along +X. Screen distance between the two projections
+        // gives a correct-magnitude pixels-per-yalm at this world position for this camera.
+        var sample = new Vector3(center.X + radius, center.Y, center.Z);
+        if (!Svc.GameGui.WorldToScreen(sample, out var sampleScr)) return;
+        var screenRadius = Vector2.Distance(centerScr, sampleScr);
+        if (screenRadius < 1f) return;
+        dl.AddCircle(centerScr, screenRadius, color, segments, thickness);
     }
 
     /// <summary>
