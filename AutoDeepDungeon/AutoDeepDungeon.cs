@@ -27,6 +27,8 @@ public sealed class Plugin : IDalamudPlugin
 
     internal static RunLifecycle Lifecycle = null!;
     internal static SaveFileManager SaveFiles = null!;
+    internal static DeathHandler Deaths = null!;
+    internal static KillSwitch KillSwitch = null!;
 
     private static AdgSafetyModal safetyModal = null!;
     private static AdgDebugWindow debugWindow = null!;
@@ -51,6 +53,8 @@ public sealed class Plugin : IDalamudPlugin
 
         Lifecycle = new RunLifecycle();
         SaveFiles = new SaveFileManager();
+        Deaths = new DeathHandler();
+        KillSwitch = new KillSwitch();
 
         EzConfigGui.Init(AdgConfigWindow.Draw, windowType: EzConfigGui.WindowType.Both);
 
@@ -67,11 +71,15 @@ public sealed class Plugin : IDalamudPlugin
         EzCmd.Add("/adg", OnCommand,
             "AutoDeepDungeon. Subcommands: start | stop | status | config | debug. No arg opens config.");
 
-        Svc.Log.Information("AutoDeepDungeon loaded. Master toggle is OFF by default; re-arm per session.");
+        Svc.Log.Information(
+            "AutoDeepDungeon loaded. Master toggle is OFF by default; re-arm per session. " +
+            "Kill-switch: Ctrl+Shift+Pause halts automation instantly.");
     }
 
     public void Dispose()
     {
+        KillSwitch?.Dispose();
+        Deaths?.Dispose();
         SaveFiles?.Dispose();
         Lifecycle?.Dispose();
         PalacePal?.Dispose();

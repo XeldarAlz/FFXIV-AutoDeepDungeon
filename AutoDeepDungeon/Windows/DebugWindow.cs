@@ -35,6 +35,16 @@ public sealed class DebugWindow : Window
             DrawIpcRow(Plugin.PalacePal);
             DrawPalacePalExtras();
         }
+
+        if (ImGui.CollapsingHeader("Config snapshot"))
+        {
+            DrawConfigSnapshot();
+        }
+
+        if (ImGui.CollapsingHeader("Humanizer"))
+        {
+            DrawHumanizer();
+        }
     }
 
     private static void DrawLifecycle()
@@ -78,6 +88,51 @@ public sealed class DebugWindow : Window
         {
             ImGui.SameLine();
             ImGui.TextDisabled($"(mesh build {prog * 100f:F0}%)");
+        }
+    }
+
+    private static void DrawConfigSnapshot()
+    {
+        var c = Plugin.Config;
+        if (ImGui.BeginTable("##adg_cfg_snap", 2, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.RowBg))
+        {
+            Row("Target",          $"{c.TargetDungeon}  floors {c.FloorStart}-{c.FloorEnd}");
+            Row("Stop",            c.StopCondition == Data.StopCondition.NRuns
+                                     ? $"{c.StopCondition} ({c.StopAfterRuns})"
+                                     : c.StopCondition.ToString());
+            Row("Combat driver",   c.CombatDriver.ToString());
+            Row("Save behavior",   c.SaveBehavior.ToString());
+            Row("On death",        $"{c.OnDeath}  +{c.RequeueDelaySeconds}s");
+            Row("Hoard",           c.Hoard.ToString());
+            Row("Magicite",        c.Magicite.ToString());
+            Row("Raising",         c.Raising.ToString());
+            Row("Conservative",    c.ConservativeMode.ToString());
+            Row("Coffer detour",   $"{c.CofferDetourYalms} yalms");
+            Row("Kill policy",     c.KillForAetherpool.ToString());
+            Row("Multi-pull",      c.MultiPullTolerance.ToString());
+            Row("HP emergency",    $"{c.HpEmergencyThresholdPct}%");
+            Row("Stuck timeout",   $"{c.StuckTimeoutSeconds}s");
+            Row("Auto-stop",       c.AutoStopOnUnexpectedState.ToString());
+            ImGui.EndTable();
+        }
+
+        static void Row(string k, string v)
+        {
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn(); ImGui.TextDisabled(k);
+            ImGui.TableNextColumn(); ImGui.Text(v);
+        }
+    }
+
+    private static void DrawHumanizer()
+    {
+        ImGui.TextWrapped(
+            "Log-normal jitter used to space automated actions. Median ~650ms, clamped to [400, 1200]ms.");
+        if (ImGui.Button("Roll 10 samples"))
+        {
+            var buf = new int[10];
+            for (var i = 0; i < buf.Length; i++) buf[i] = Humanizer.NextDelayMs();
+            Svc.Log.Information($"[Humanizer] samples: {string.Join(", ", buf)}");
         }
     }
 
