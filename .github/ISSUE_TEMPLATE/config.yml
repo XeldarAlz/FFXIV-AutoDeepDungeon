@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question
+    url: https://github.com/XeldarAlz/FFXIV-AutoDeepDungeon/discussions/categories/q-a
+    about: Questions about installation, configuration, or usage.
+  - name: Ideas / design discussion
+    url: https://github.com/XeldarAlz/FFXIV-AutoDeepDungeon/discussions/categories/ideas
+    about: Open-ended design discussion and feature brainstorming.
+  - name: Share a run
+    url: https://github.com/XeldarAlz/FFXIV-AutoDeepDungeon/discussions/categories/show-and-tell
+    about: Trip reports, clear screenshots, clip links.

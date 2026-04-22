@@ -1,0 +1,55 @@
+name: Feature request
+description: Propose a new capability, config option, or policy change.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What doesn't work well today, or what's missing? Concrete example beats abstract wish.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should the plugin do instead? How should the user control it?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which sub-system does this touch? Pick the closest.
+      options:
+        - Perception (FloorScanner / AggroMap / PalacePal reader)
+        - Planning (CostGraph / PathPlanner / Executor)
+        - Combat (CombatDriver / defensives / DD consumables)
+        - Pomander policy
+        - Panic state
+        - Boss handler
+        - Hoard / Magicite
+        - Run lifecycle (queue / enter / exit / requeue)
+        - Config surface / UI
+        - New dungeon support
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How would we know this is done? What's the concrete pass/fail?
+      placeholder: |
+        - Given floor 45 with <foo>, when <bar>, plugin does <baz>.
+        - Logged behavior matches on 5 consecutive runs.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you thought about and why you discarded them. Optional.

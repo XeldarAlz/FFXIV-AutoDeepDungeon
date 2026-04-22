@@ -1,0 +1,98 @@
+name: Run failure / unexpected stop
+description: The plugin died, self-stopped, or got stuck and the run ended.
+title: "[run-failure] "
+labels: ["run-failure", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Run failures are the most useful diagnostic signal for this project.
+        Please attach the death log from `pluginconfigs/DDAutopilot/deaths/` if available.
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      placeholder: "v0.0.x or commit SHA"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: dungeon
+    attributes:
+      label: Deep Dungeon
+      options:
+        - Palace of the Dead
+        - Heaven-on-High
+        - Eureka Orthos
+    validations:
+      required: true
+
+  - type: input
+    id: floor
+    attributes:
+      label: Floor
+      placeholder: "e.g. 34"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: failure-type
+    attributes:
+      label: Failure type
+      options:
+        - Character died
+        - Plugin self-stopped on unexpected state
+        - Stuck / stuck-timeout triggered
+        - Infinite loop (re-plan / re-queue)
+        - Wrong action taken (walked into trap, opened mimic, etc.)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Stage when it failed
+      options:
+        - Queueing
+        - Entering
+        - Planning
+        - Executing
+        - Combat
+        - Panic
+        - FloorClear
+        - Descending
+        - Dead
+    validations:
+      required: true
+
+  - type: textarea
+    id: narrative
+    attributes:
+      label: What happened in plain English?
+      placeholder: |
+        Floor 34, 3 mobs on me, HP dropped below 30% but no defensive fired.
+        Plugin kept trying to move toward passage, died to a patroller.
+    validations:
+      required: true
+
+  - type: textarea
+    id: pomanders
+    attributes:
+      label: Pomander inventory at the time (if known)
+      description: Which slots were stocked? Did any fire before the failure?
+
+  - type: textarea
+    id: death-log
+    attributes:
+      label: Death log
+      description: Paste or attach the contents of the relevant file from `pluginconfigs/DDAutopilot/deaths/`.
+      render: text
+
+  - type: textarea
+    id: dalamud-log
+    attributes:
+      label: dalamud.log snippet
+      description: The failure window from `%APPDATA%\XIVLauncher\dalamud.log`. Trim aggressively.
+      render: text

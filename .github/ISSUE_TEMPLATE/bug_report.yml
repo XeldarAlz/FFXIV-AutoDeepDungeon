@@ -1,0 +1,101 @@
+name: Bug report
+description: Something misbehaved but the plugin didn't fully stop the run.
+title: "[bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Fill in as much as you can — anything missing makes it harder to diagnose.
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: From `/xlplugins` → Installed Dev Plugins, or the release tag you built from.
+      placeholder: "v0.0.x or commit SHA"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: dungeon
+    attributes:
+      label: Deep Dungeon
+      options:
+        - Palace of the Dead
+        - Heaven-on-High
+        - Eureka Orthos
+        - Not in a Deep Dungeon
+    validations:
+      required: true
+
+  - type: input
+    id: floor
+    attributes:
+      label: Floor
+      description: Which floor were you on when the bug happened? Leave blank if not applicable.
+      placeholder: "e.g. 17"
+
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Plugin stage when the bug happened
+      description: Shown in `/adg status` and the Debug window.
+      options:
+        - Idle
+        - Queueing
+        - Entering
+        - Planning
+        - Executing
+        - Combat
+        - Panic
+        - FloorClear
+        - Descending
+        - Dead
+        - Unknown / not visible
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did the plugin do, and what did you expect it to do instead?
+      placeholder: |
+        Expected: plugin paths around the trap on floor 12.
+        Actual: plugin walked into the trap.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: If you can reproduce it, walk through the steps. If it's intermittent, say so.
+      placeholder: |
+        1. `/adg start` in PotD lobby
+        2. …
+
+  - type: checkboxes
+    id: external-plugins
+    attributes:
+      label: External plugins installed at the time
+      options:
+        - label: vnavmesh
+        - label: RotationSolver
+        - label: WrathCombo
+        - label: BossMod
+        - label: PalacePal
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Plugin log / dalamud.log snippet
+      description: Relevant lines from `/xllog` or `%APPDATA%\XIVLauncher\dalamud.log`. Trim to the failure window.
+      render: text
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, clips, config export, hunches.
