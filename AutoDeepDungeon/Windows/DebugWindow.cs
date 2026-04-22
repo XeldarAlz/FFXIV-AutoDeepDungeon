@@ -49,6 +49,7 @@ public sealed class DebugWindow : Window
             DrawIpcRow(Plugin.BossMod);
             DrawIpcRow(Plugin.PalacePal);
             DrawPalacePalExtras();
+            DrawSplatoonRow();
         }
 
         if (ImGui.CollapsingHeader("Config snapshot"))
@@ -238,6 +239,21 @@ public sealed class DebugWindow : Window
             var buf = new int[10];
             for (var i = 0; i < buf.Length; i++) buf[i] = Humanizer.NextDelayMs();
             Svc.Log.Information($"[Humanizer] samples: {string.Join(", ", buf)}");
+        }
+    }
+
+    private static void DrawSplatoonRow()
+    {
+        var ready = Plugin.Overlay?.IsConnected ?? false;
+        var color = ready ? new Vector4(0.35f, 1.0f, 0.35f, 1.0f) : new Vector4(1.0f, 0.4f, 0.4f, 1.0f);
+        var badge = ready ? "READY" : "NOT READY";
+        ImGui.TextColored(color, badge);
+        ImGui.SameLine();
+        ImGui.Text("Splatoon (overlay renderer)");
+        if (!ready)
+        {
+            ImGui.SameLine();
+            ImGui.TextDisabled("— install Splatoon for world-space overlays");
         }
     }
 

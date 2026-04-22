@@ -8,11 +8,10 @@ using ECommons;
 using ECommons.Configuration;
 using ECommons.DalamudServices;
 using ECommons.SimpleGui;
-using Pictomancy;
 using AdgConfigWindow = AutoDeepDungeon.Windows.ConfigWindow;
 using AdgDebugWindow = AutoDeepDungeon.Windows.DebugWindow;
 using AdgSafetyModal = AutoDeepDungeon.Windows.SafetyModal;
-using AdgWorldOverlay = AutoDeepDungeon.Windows.WorldOverlay;
+using AdgSplatoonOverlay = AutoDeepDungeon.Windows.SplatoonOverlay;
 
 namespace AutoDeepDungeon;
 
@@ -34,7 +33,7 @@ public sealed class Plugin : IDalamudPlugin
     internal static FloorScanner Floor = null!;
     internal static PassageStateTracker PassageState = null!;
 
-    private static AdgWorldOverlay overlay = null!;
+    internal static AdgSplatoonOverlay Overlay = null!;
 
     private static AdgSafetyModal safetyModal = null!;
     private static AdgDebugWindow debugWindow = null!;
@@ -42,7 +41,7 @@ public sealed class Plugin : IDalamudPlugin
     public Plugin(IDalamudPluginInterface pluginInterface)
     {
         P = this;
-        ECommonsMain.Init(pluginInterface, this);
+        ECommonsMain.Init(pluginInterface, this, Module.SplatoonAPI);
         Config = EzConfig.Init<Config>();
 
         Vnav = new VnavIPC();
@@ -64,10 +63,7 @@ public sealed class Plugin : IDalamudPlugin
         PassageState = new PassageStateTracker();
         Floor = new FloorScanner();
 
-        try { PictoService.Initialize(pluginInterface); }
-        catch (Exception ex) { Svc.Log.Warning($"Pictomancy init failed — overlay disabled: {ex.Message}"); }
-
-        overlay = new AdgWorldOverlay();
+        Overlay = new AdgSplatoonOverlay();
 
         EzConfigGui.Init(AdgConfigWindow.Draw, windowType: EzConfigGui.WindowType.Both);
 
@@ -91,8 +87,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
-        overlay?.Dispose();
-        try { PictoService.Dispose(); } catch { /* best-effort */ }
+        Overlay?.Dispose();
         Floor?.Dispose();
         PassageState?.Dispose();
         KillSwitch?.Dispose();
