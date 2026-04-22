@@ -2,6 +2,7 @@ using System;
 using System.Numerics;
 using AutoDeepDungeon.Helpers;
 using AutoDeepDungeon.IPC;
+using AutoDeepDungeon.Managers;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using ECommons.DalamudServices;
@@ -23,9 +24,23 @@ public sealed class DebugWindow : Window
     public override void Draw()
     {
         DrawLifecycle();
+
+        ImGui.SameLine();
+        var overlay = Plugin.Config.EnableDebugOverlay;
+        if (ImGui.Checkbox("World overlay", ref overlay))
+        {
+            Plugin.Config.EnableDebugOverlay = overlay;
+            Plugin.SaveConfig();
+        }
+
         ImGui.Separator();
 
-        if (ImGui.CollapsingHeader("IPC readiness", ImGuiTreeNodeFlags.DefaultOpen))
+        if (ImGui.CollapsingHeader("Floor scan", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            DrawFloorScan();
+        }
+
+        if (ImGui.CollapsingHeader("IPC readiness"))
         {
             DrawIpcRow(Plugin.Vnav);
             DrawVnavExtras();
@@ -34,6 +49,7 @@ public sealed class DebugWindow : Window
             DrawIpcRow(Plugin.BossMod);
             DrawIpcRow(Plugin.PalacePal);
             DrawPalacePalExtras();
+            DrawSplatoonRow();
         }
 
         if (ImGui.CollapsingHeader("Config snapshot"))
@@ -91,6 +107,96 @@ public sealed class DebugWindow : Window
         }
     }
 
+    private static void DrawFloorScan()
+    {
+        var f = Plugin.Floor.Current;
+        if (!f.InDeepDungeon)
+        {
+            ImGui.TextDisabled("Not in a Deep Dungeon — scanner idle.");
+            return;
+        }
+        ImGui.Text($"Kind: {f.Kind?.ToString() ?? "?"}  Floor: {f.Floor}  Territory: {f.TerritoryType}  PassageProgress: {f.PassageProgress}");
+        ImGui.Text(
+            $"Mobs: {f.Mobs.Count}   " +
+            $"Traps: {f.Traps.Count} live / {f.PersistentTraps.Count} saved   " +
+            $"Coffers: {f.Coffers.Count}   " +
+            $"Hoards: {f.Hoards.Count} live / {f.PersistentHoards.Count} saved   " +
+            $"Passage: {(f.Passage == null ? "no" : (f.Passage.Active ? "ACTIVE" : "inactive"))}");
+
+        var aggroHere = AggroMap.AnyAggroCovers(f, f.SelfPosition);
+        ImGui.Text($"Aggro on self: {(aggroHere ? "YES" : "no")}");
+        ImGui.SameLine();
+        if (aggroHere) ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), "— a mob would pull if we're here");
+
+        if (f.Mobs.Count > 0 && ImGui.TreeNode($"Mobs##mobs_{f.Mobs.Count}"))
+        {
+            // Copy + sort by distance so the closest mobs are at the top. Cheap with <50 mobs.
+            var byDist = new System.Collections.Generic.List<Data.MobEntity>(f.Mobs);
+            byDist.Sort((a, b) => Vector3.Distance(f.SelfPosition, a.Position)
+                                   .CompareTo(Vector3.Distance(f.SelfPosition, b.Position)));
+
+            if (ImGui.BeginTable("##mobs", 9, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingFixedFit))
+            {
+                ImGui.TableSetupColumn("BaseId");
+                ImGui.TableSetupColumn("NameId");
+                ImGui.TableSetupColumn("Name");
+                ImGui.TableSetupColumn("HP");
+                ImGui.TableSetupColumn("Dist");
+                ImGui.TableSetupColumn("Rad");
+                ImGui.TableSetupColumn("Type");
+                ImGui.TableSetupColumn("Combat");
+                ImGui.TableSetupColumn("Mimic?");
+                ImGui.TableHeadersRow();
+                foreach (var m in byDist)
+                {
+                    var geom = AggroMap.Compute(m);
+                    ImGui.TableNextRow();
+                    ImGui.TableNextColumn(); ImGui.Text(m.BaseId.ToString());
+                    ImGui.TableNextColumn(); ImGui.Text(m.NameId.ToString());
+                    ImGui.TableNextColumn(); ImGui.Text(string.IsNullOrEmpty(m.Name) ? "<anon>" : m.Name);
+                    ImGui.TableNextColumn(); ImGui.Text($"{m.CurrentHp}/{m.MaxHp}");
+                    ImGui.TableNextColumn(); ImGui.Text($"{Vector3.Distance(f.SelfPosition, m.Position):F1}y");
+                    ImGui.TableNextColumn(); ImGui.Text($"{geom.Radius:F0}y");
+                    ImGui.TableNextColumn(); ImGui.Text(geom.Omnidirectional ? "omni" : "cone");
+                    ImGui.TableNextColumn(); ImGui.Text(m.InCombat ? "yes" : "");
+                    ImGui.TableNextColumn(); if (m.IsMimicCandidate) ImGui.TextColored(new Vector4(1f, 0.6f, 0.2f, 1f), "MIMIC");
+                }
+                ImGui.EndTable();
+            }
+            ImGui.TreePop();
+        }
+
+        DrawEObjList("Traps",   f.Traps,   f.SelfPosition);
+        DrawEObjList("Coffers", f.Coffers, f.SelfPosition);
+        DrawEObjList("Hoards",  f.Hoards,  f.SelfPosition);
+        if (f.Passage is { } p)
+        {
+            ImGui.Text($"Passage: DataId={p.DataId}  Dist={Vector3.Distance(f.SelfPosition, p.Position):F1}y  EventState={p.EventState}  Active={p.Active}");
+        }
+    }
+
+    private static void DrawEObjList(string label, System.Collections.Generic.IReadOnlyList<Data.EObjEntity> items, Vector3 self)
+    {
+        if (items.Count == 0) return;
+        if (!ImGui.TreeNode($"{label} ({items.Count})##list_{label}")) return;
+        if (ImGui.BeginTable($"##tbl_{label}", 3, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingFixedFit))
+        {
+            ImGui.TableSetupColumn("DataId");
+            ImGui.TableSetupColumn("Position");
+            ImGui.TableSetupColumn("Dist");
+            ImGui.TableHeadersRow();
+            foreach (var e in items)
+            {
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn(); ImGui.Text(e.DataId.ToString());
+                ImGui.TableNextColumn(); ImGui.Text($"({e.Position.X:F1}, {e.Position.Y:F1}, {e.Position.Z:F1})");
+                ImGui.TableNextColumn(); ImGui.Text($"{Vector3.Distance(self, e.Position):F1}y");
+            }
+            ImGui.EndTable();
+        }
+        ImGui.TreePop();
+    }
+
     private static void DrawConfigSnapshot()
     {
         var c = Plugin.Config;
@@ -133,6 +239,21 @@ public sealed class DebugWindow : Window
             var buf = new int[10];
             for (var i = 0; i < buf.Length; i++) buf[i] = Humanizer.NextDelayMs();
             Svc.Log.Information($"[Humanizer] samples: {string.Join(", ", buf)}");
+        }
+    }
+
+    private static void DrawSplatoonRow()
+    {
+        var ready = Plugin.Overlay?.IsConnected ?? false;
+        var color = ready ? new Vector4(0.35f, 1.0f, 0.35f, 1.0f) : new Vector4(1.0f, 0.4f, 0.4f, 1.0f);
+        var badge = ready ? "READY" : "NOT READY";
+        ImGui.TextColored(color, badge);
+        ImGui.SameLine();
+        ImGui.Text("Splatoon (overlay renderer)");
+        if (!ready)
+        {
+            ImGui.SameLine();
+            ImGui.TextDisabled("— install Splatoon for world-space overlays");
         }
     }
 
