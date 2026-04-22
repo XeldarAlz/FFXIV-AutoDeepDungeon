@@ -190,10 +190,21 @@ public sealed class FloorScanner : IDisposable
         }
         if (DataIds.IsPassage(dataId))
         {
-            // PassageProgress is a byte on InstanceContentDeepDungeon. Non-zero means the
-            // floor has been cleared enough for the exit to light up. Exact thresholds per
-            // DD are pinned during M1 Day 6 in-game testing.
-            passage = new PassageEntity(obj.GameObjectId, dataId, obj.Position, Active: passageProgress > 0);
+            // PassageProgress is a running kill counter on the DD instance, not a
+            // boolean — flips positive after the first kill, way before the cairn
+            // actually lights up. The per-object EventState byte flips when the
+            // passage EObj is lit and interactable, so we read that too and let
+            // the higher bit pick which signal to trust once we've seen real values.
+            byte eventState;
+            unsafe
+            {
+                var eobj = (FFXIVClientStructs.FFXIV.Client.Game.Object.EventObject*)obj.Address;
+                eventState = eobj == null ? (byte)0 : eobj->EventState;
+            }
+            // Provisional: a non-zero EventState means the cairn has been activated.
+            // Exact value pinned during in-game testing.
+            var active = eventState > 0;
+            passage = new PassageEntity(obj.GameObjectId, dataId, obj.Position, eventState, active);
         }
     }
 }

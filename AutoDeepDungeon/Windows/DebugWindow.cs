@@ -170,7 +170,7 @@ public sealed class DebugWindow : Window
         DrawEObjList("Hoards",  f.Hoards,  f.SelfPosition);
         if (f.Passage is { } p)
         {
-            ImGui.Text($"Passage: DataId={p.DataId}  Dist={Vector3.Distance(f.SelfPosition, p.Position):F1}y  Active={p.Active}");
+            ImGui.Text($"Passage: DataId={p.DataId}  Dist={Vector3.Distance(f.SelfPosition, p.Position):F1}y  EventState={p.EventState}  Active={p.Active}");
         }
     }
 

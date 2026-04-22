@@ -56,4 +56,5 @@ public sealed record PassageEntity(
     ulong ObjectId,
     uint DataId,
     Vector3 Position,
+    byte EventState,
     bool Active);
