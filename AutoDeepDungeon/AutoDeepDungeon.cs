@@ -43,7 +43,7 @@ public sealed class Plugin : IDalamudPlugin
         WarnIfMissing(BossMod);
         WarnIfMissing(PalacePal);
 
-        EzConfigGui.Init(AdgConfigWindow.Draw);
+        EzConfigGui.Init(AdgConfigWindow.Draw, windowType: EzConfigGui.WindowType.Both);
 
         safetyModal = new AdgSafetyModal();
         EzConfigGui.WindowSystem.AddWindow(safetyModal);
