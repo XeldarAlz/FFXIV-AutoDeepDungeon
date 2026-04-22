@@ -1,21 +1,36 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 using AutoDeepDungeon.Data;
 using AutoDeepDungeon.Managers;
-using Dalamud.Bindings.ImGui;
 using ECommons.DalamudServices;
 using Pictomancy;
 
 namespace AutoDeepDungeon.Windows;
 
 /// <summary>
-/// Pictomancy-backed world-space debug overlay. Renders a running commentary of what the
-/// FloorScanner sees so the M1 exit criteria can be eyeballed in-game: mob aggro
-/// footprints, live and persistent traps, hoards, coffers, and the passage's active state.
-/// Gated on <see cref="Config.EnableDebugOverlay"/>; drawing is a no-op otherwise.
+/// Pictomancy-backed world-space debug overlay. Renders aggro footprints, traps, hoards,
+/// coffers, and passage active-state so the M1 exit criteria can be eyeballed in-game.
+/// Gated on <see cref="Config.EnableDebugOverlay"/>.
+///
+/// Triangle-budget notes: Pictomancy caps a draw list at 1024 triangles per frame. Filled
+/// cones and circles burn the budget fast with DD mob counts, so we render outlines (low
+/// segment counts) and cull distant persistent-data markers.
 /// </summary>
 public sealed class WorldOverlay : IDisposable
 {
+    // Keep per-frame shape counts comfortable. 20 mobs × ~12 segments per shape + a handful
+    // of markers stays well under the 1024-triangle budget.
+    private const int MaxAggroShapes           = 20;
+    private const float PersistentDrawRange    = 50f;   // yalms from self
+    private const int SegAggroCone             = 12;
+    private const int SegAggroOmni             = 16;
+    private const int SegMarkerLive            = 12;
+    private const int SegMarkerPersistent      = 10;
+    private const int SegPassage               = 18;
+    private const float OutlineThickness       = 2f;
+    private const float OutlineThickHighlight  = 3f;
+
     public WorldOverlay()
     {
         Svc.PluginInterface.UiBuilder.Draw += Draw;
@@ -26,21 +41,23 @@ public sealed class WorldOverlay : IDisposable
         Svc.PluginInterface.UiBuilder.Draw -= Draw;
     }
 
-    // Colors packed as ImGui ABGR (alpha, blue, green, red low-to-high).
+    // ImGui ABGR packing: (a << 24) | (b << 16) | (g << 8) | r.
     private static uint Rgba(byte r, byte g, byte b, byte a)
         => ((uint)a << 24) | ((uint)b << 16) | ((uint)g << 8) | r;
 
-    private static readonly uint ColorSelf        = Rgba(64, 160, 255, 255);
-    private static readonly uint ColorAggroSight  = Rgba(255, 64,  64,  96);
-    private static readonly uint ColorAggroOmni   = Rgba(255, 160, 64,  96);
-    private static readonly uint ColorTrapLive    = Rgba(255, 0,   0,   200);
-    private static readonly uint ColorTrapPersist = Rgba(255, 0,   0,   64);
-    private static readonly uint ColorHoardLive   = Rgba(255, 200, 0,   230);
-    private static readonly uint ColorHoardPersist= Rgba(255, 200, 0,   80);
-    private static readonly uint ColorCoffer      = Rgba(255, 255, 255, 220);
-    private static readonly uint ColorMimic       = Rgba(255, 80,  0,   230);
-    private static readonly uint ColorPassageOn   = Rgba(64,  255, 64,  230);
-    private static readonly uint ColorPassageOff  = Rgba(160, 160, 160, 180);
+    private static readonly uint ColorSelf         = Rgba(64, 160, 255, 255);
+    private static readonly uint ColorAggroSight   = Rgba(255, 64,  64,  220);
+    private static readonly uint ColorAggroOmni    = Rgba(255, 160, 64,  220);
+    private static readonly uint ColorMimic        = Rgba(255, 80,  0,   230);
+    private static readonly uint ColorTrapLive     = Rgba(255, 40,  40,  230);
+    private static readonly uint ColorTrapPersist  = Rgba(255, 40,  40,  110);
+    private static readonly uint ColorHoardLive    = Rgba(255, 220, 40,  230);
+    private static readonly uint ColorHoardPersist = Rgba(255, 220, 40,  110);
+    private static readonly uint ColorCoffer       = Rgba(255, 255, 255, 220);
+    private static readonly uint ColorPassageOn    = Rgba(64,  255, 64,  230);
+    private static readonly uint ColorPassageOff   = Rgba(160, 160, 160, 180);
+
+    private static readonly List<MobEntity> mobBuffer = new();
 
     private static void Draw()
     {
@@ -53,8 +70,7 @@ public sealed class WorldOverlay : IDisposable
             using var dl = PictoService.Draw();
             if (dl == null) return;
 
-            // Self ring — visual anchor for orientation checks.
-            dl.AddCircle(floor.SelfPosition, 0.5f, ColorSelf, 32, 2f);
+            dl.AddCircle(floor.SelfPosition, 0.5f, ColorSelf, 16, OutlineThickness);
 
             DrawAggro(dl, floor);
             DrawTraps(dl, floor);
@@ -64,36 +80,49 @@ public sealed class WorldOverlay : IDisposable
         }
         catch (Exception ex)
         {
-            // Don't let an overlay glitch take the game's draw loop down. Log once per
-            // session by keying on message to avoid spam.
             Svc.Log.Warning($"[WorldOverlay] draw failed: {ex.Message}");
         }
     }
 
     private static void DrawAggro(PctDrawList dl, FloorState floor)
     {
+        mobBuffer.Clear();
         foreach (var m in floor.Mobs)
         {
             if (m.CurrentHp == 0) continue;
+            mobBuffer.Add(m);
+        }
+        mobBuffer.Sort((a, b) => Vector3.Distance(floor.SelfPosition, a.Position)
+                                       .CompareTo(Vector3.Distance(floor.SelfPosition, b.Position)));
+
+        var limit = Math.Min(mobBuffer.Count, MaxAggroShapes);
+        for (var i = 0; i < limit; i++)
+        {
+            var m = mobBuffer[i];
             var geom = AggroMap.Compute(m);
             var color = m.IsMimicCandidate
                 ? ColorMimic
                 : (geom.Omnidirectional ? ColorAggroOmni : ColorAggroSight);
+            var thickness = m.IsMimicCandidate ? OutlineThickHighlight : OutlineThickness;
 
             if (geom.Omnidirectional)
             {
-                dl.AddCircleFilled(geom.Origin, geom.Radius, color, null, 48);
+                dl.AddCircle(geom.Origin, geom.Radius, color, SegAggroOmni, thickness);
             }
             else
             {
-                dl.AddConeFilled(
-                    origin: geom.Origin,
-                    radius: geom.Radius,
-                    rotation: geom.Facing,
-                    angle: geom.ConeHalfAngle * 2f,
-                    color: color,
-                    outerColor: null,
-                    numSegments: 24);
+                var half = geom.ConeHalfAngle;
+                var left  = geom.Facing + half;
+                var right = geom.Facing - half;
+
+                dl.AddArc(geom.Origin, geom.Radius, right, left, color, SegAggroCone, thickness);
+
+                // Radial edges from the mob origin to the arc endpoints so the cone reads
+                // as a triangle-ish shape at a glance.
+                var pLeft  = geom.Origin + new Vector3(MathF.Sin(left)  * geom.Radius, 0f, MathF.Cos(left)  * geom.Radius);
+                var pRight = geom.Origin + new Vector3(MathF.Sin(right) * geom.Radius, 0f, MathF.Cos(right) * geom.Radius);
+                dl.AddLine(geom.Origin, pLeft,  0f, color, thickness);
+                dl.AddLine(geom.Origin, pRight, 0f, color, thickness);
             }
         }
     }
@@ -101,32 +130,37 @@ public sealed class WorldOverlay : IDisposable
     private static void DrawTraps(PctDrawList dl, FloorState floor)
     {
         foreach (var t in floor.Traps)
-            dl.AddCircleFilled(t.Position, 1.5f, ColorTrapLive, null, 24);
+            dl.AddCircle(t.Position, 1.5f, ColorTrapLive, SegMarkerLive, OutlineThickHighlight);
 
         foreach (var p in floor.PersistentTraps)
-            dl.AddCircle(p, 1.5f, ColorTrapPersist, 24, 2f);
+        {
+            if (Vector3.DistanceSquared(floor.SelfPosition, p) > PersistentDrawRange * PersistentDrawRange) continue;
+            dl.AddCircle(p, 1.5f, ColorTrapPersist, SegMarkerPersistent, OutlineThickness);
+        }
     }
 
     private static void DrawHoards(PctDrawList dl, FloorState floor)
     {
         foreach (var h in floor.Hoards)
-            dl.AddCircleFilled(h.Position, 1.0f, ColorHoardLive, null, 24);
+            dl.AddCircle(h.Position, 1.0f, ColorHoardLive, SegMarkerLive, OutlineThickHighlight);
 
         foreach (var p in floor.PersistentHoards)
-            dl.AddCircle(p, 1.0f, ColorHoardPersist, 24, 2f);
+        {
+            if (Vector3.DistanceSquared(floor.SelfPosition, p) > PersistentDrawRange * PersistentDrawRange) continue;
+            dl.AddCircle(p, 1.0f, ColorHoardPersist, SegMarkerPersistent, OutlineThickness);
+        }
     }
 
     private static void DrawCoffers(PctDrawList dl, FloorState floor)
     {
         foreach (var c in floor.Coffers)
-            dl.AddCircle(c.Position, 0.8f, ColorCoffer, 24, 2f);
+            dl.AddCircle(c.Position, 0.8f, ColorCoffer, SegMarkerLive, OutlineThickness);
     }
 
     private static void DrawPassage(PctDrawList dl, FloorState floor)
     {
         if (floor.Passage is not { } p) return;
         var color = p.Active ? ColorPassageOn : ColorPassageOff;
-        dl.AddCircle(p.Position, 2.0f, color, 32, 3f);
-        dl.AddCircle(p.Position, 1.0f, color, 32, 3f);
+        dl.AddCircle(p.Position, 2.0f, color, SegPassage, OutlineThickHighlight);
     }
 }
