@@ -12,15 +12,9 @@ Pre-alpha.
 | PotD 51–200 / HoH / Orthos      | Planned     |
 | Pilgrim Traverse                | TBD         |
 
-Delegates to: [vnavmesh](https://github.com/awgil/ffxiv_navmesh) (pathing),
-[RotationSolver](https://github.com/ArchiDog1998/RotationSolver) or
-[WrathCombo](https://github.com/PunishXIV/WrathCombo) (rotation),
-[BossMod](https://github.com/awgil/ffxiv_bossmod) (boss mechanics),
-[PalacePal](https://github.com/carvelli/PalacePal) (trap + hoard data).
-
 ## Install
 
-Custom Dalamud repo only. URL will be published once the first release is tagged.
+URL will be published once the first release is tagged.
 
 ## Commands
 
