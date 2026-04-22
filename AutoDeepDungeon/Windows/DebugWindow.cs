@@ -104,8 +104,13 @@ public sealed class DebugWindow : Window
             ImGui.TextDisabled("Not in a Deep Dungeon — scanner idle.");
             return;
         }
-        ImGui.Text($"Kind: {f.Kind?.ToString() ?? "?"}  Floor: {f.Floor}  Territory: {f.TerritoryType}");
-        ImGui.Text($"Mobs: {f.Mobs.Count}   Traps: {f.Traps.Count}   Coffers: {f.Coffers.Count}   Hoards: {f.Hoards.Count}   Passage: {(f.Passage == null ? "no" : (f.Passage.Active ? "ACTIVE" : "inactive"))}");
+        ImGui.Text($"Kind: {f.Kind?.ToString() ?? "?"}  Floor: {f.Floor}  Territory: {f.TerritoryType}  PassageProgress: {f.PassageProgress}");
+        ImGui.Text(
+            $"Mobs: {f.Mobs.Count}   " +
+            $"Traps: {f.Traps.Count} live / {f.PersistentTraps.Count} saved   " +
+            $"Coffers: {f.Coffers.Count}   " +
+            $"Hoards: {f.Hoards.Count} live / {f.PersistentHoards.Count} saved   " +
+            $"Passage: {(f.Passage == null ? "no" : (f.Passage.Active ? "ACTIVE" : "inactive"))}");
 
         if (f.Mobs.Count > 0 && ImGui.TreeNode($"Mobs##mobs_{f.Mobs.Count}"))
         {
