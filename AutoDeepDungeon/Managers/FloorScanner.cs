@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using AutoDeepDungeon.Data;
 using AutoDeepDungeon.Helpers;
+using AutoDeepDungeon.IPC;
 using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Objects.Types;
@@ -26,11 +27,20 @@ public sealed class FloorScanner : IDisposable
     public FloorScanner()
     {
         Svc.Framework.Update += Tick;
+        Svc.ClientState.TerritoryChanged += OnTerritoryChanged;
     }
 
     public void Dispose()
     {
         Svc.Framework.Update -= Tick;
+        Svc.ClientState.TerritoryChanged -= OnTerritoryChanged;
+    }
+
+    private static void OnTerritoryChanged(ushort newTerritory)
+    {
+        // Drop cached PalacePal snapshots — another client (or PalacePal's server-sync) may
+        // have added discoveries to the new territory while we were elsewhere.
+        Plugin.PalacePal?.InvalidateCache();
     }
 
     private void Tick(IFramework framework)
@@ -56,6 +66,7 @@ public sealed class FloorScanner : IDisposable
 
         var kind = DDStateHelper.CurrentDDKind();
         var floor = DDStateHelper.CurrentFloor();
+        var passageProgress = DDStateHelper.CurrentPassageProgress();
         var territory = Svc.ClientState.TerritoryType;
         var self = Svc.ClientState.LocalPlayer?.Position ?? Vector3.Zero;
 
@@ -72,7 +83,7 @@ public sealed class FloorScanner : IDisposable
             switch (obj.ObjectKind)
             {
                 case ObjectKind.EventObj:
-                    ClassifyEObj(obj, kind, traps, coffers, hoards, ref passage);
+                    ClassifyEObj(obj, kind, passageProgress, traps, coffers, hoards, ref passage);
                     break;
                 case ObjectKind.BattleNpc when obj is IBattleNpc battle:
                     if (battle.IsDead) break;
@@ -98,22 +109,50 @@ public sealed class FloorScanner : IDisposable
             }
         }
 
+        var (persistentTraps, persistentHoards) = LoadPersistent(territory);
+
         return new FloorState(
             InDeepDungeon: true,
             Kind: kind,
             Floor: floor,
+            PassageProgress: passageProgress,
             TerritoryType: territory,
             SelfPosition: self,
             Mobs: mobs,
             Traps: traps,
             Coffers: coffers,
             Hoards: hoards,
+            PersistentTraps: persistentTraps,
+            PersistentHoards: persistentHoards,
             Passage: passage);
+    }
+
+    private static (IReadOnlyList<Vector3> traps, IReadOnlyList<Vector3> hoards) LoadPersistent(uint territory)
+    {
+        var pp = Plugin.PalacePal;
+        if (pp == null || !pp.IsReady || territory == 0)
+            return (Array.Empty<Vector3>(), Array.Empty<Vector3>());
+
+        var rows = pp.QueryByTerritory(territory);
+        if (rows.Count == 0) return (Array.Empty<Vector3>(), Array.Empty<Vector3>());
+
+        var traps = new List<Vector3>();
+        var hoards = new List<Vector3>();
+        foreach (var row in rows)
+        {
+            switch (row.Type)
+            {
+                case PalacePalReader.TypeTrap:  traps.Add(row.Position); break;
+                case PalacePalReader.TypeHoard: hoards.Add(row.Position); break;
+            }
+        }
+        return (traps, hoards);
     }
 
     private static void ClassifyEObj(
         IGameObject obj,
         TargetDungeon? kind,
+        byte passageProgress,
         List<EObjEntity> traps,
         List<EObjEntity> coffers,
         List<EObjEntity> hoards,
@@ -138,9 +177,10 @@ public sealed class FloorScanner : IDisposable
         }
         if (DataIds.IsPassage(dataId))
         {
-            // Active-state detection (ObjectEffectData1==4 && Data2==8) lands in M1 Day 3
-            // once we confirm the struct layout; default to Active=false for now.
-            passage = new PassageEntity(obj.GameObjectId, dataId, obj.Position, Active: false);
+            // PassageProgress is a byte on InstanceContentDeepDungeon. Non-zero means the
+            // floor has been cleared enough for the exit to light up. Exact thresholds per
+            // DD are pinned during M1 Day 6 in-game testing.
+            passage = new PassageEntity(obj.GameObjectId, dataId, obj.Position, Active: passageProgress > 0);
         }
     }
 }

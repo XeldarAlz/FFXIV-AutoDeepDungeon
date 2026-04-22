@@ -11,20 +11,25 @@ public sealed record FloorState(
     bool InDeepDungeon,
     TargetDungeon? Kind,
     byte Floor,
+    byte PassageProgress,
     uint TerritoryType,
     Vector3 SelfPosition,
     IReadOnlyList<MobEntity> Mobs,
     IReadOnlyList<EObjEntity> Traps,
     IReadOnlyList<EObjEntity> Coffers,
     IReadOnlyList<EObjEntity> Hoards,
+    IReadOnlyList<Vector3> PersistentTraps,
+    IReadOnlyList<Vector3> PersistentHoards,
     PassageEntity? Passage)
 {
     public static FloorState Empty { get; } = new(
-        false, null, 0, 0, Vector3.Zero,
+        false, null, 0, 0, 0, Vector3.Zero,
         System.Array.Empty<MobEntity>(),
         System.Array.Empty<EObjEntity>(),
         System.Array.Empty<EObjEntity>(),
         System.Array.Empty<EObjEntity>(),
+        System.Array.Empty<Vector3>(),
+        System.Array.Empty<Vector3>(),
         null);
 }
 
