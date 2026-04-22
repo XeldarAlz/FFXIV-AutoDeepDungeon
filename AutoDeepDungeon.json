@@ -4,12 +4,17 @@
     "Name": "AutoDeepDungeon",
     "InternalName": "AutoDeepDungeon",
     "AssemblyVersion": "0.0.0.1",
-    "Description": "Automates solo Deep Dungeon runs (Palace of the Dead, Heaven-on-High, Eureka Orthos).",
+    "Description": "Automates solo Deep Dungeon runs (Palace of the Dead, Heaven-on-High, Eureka Orthos, Pilgrim's Traverse).",
     "ApplicableVersion": "any",
     "Tags": [
-      "deep dungeon",
-      "palace of the dead",
-      "automation"
+        "deep dungeon",
+        "potd",
+        "hoh",
+        "eureka",
+        "orthos",
+        "pilgrim",
+        "auto", 
+        "automation"
     ],
     "RepoUrl": "https://github.com/XeldarAlz/FFXIV-AutoDeepDungeon",
     "IconUrl": "",
