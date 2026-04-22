@@ -24,6 +24,15 @@ public sealed class DebugWindow : Window
     public override void Draw()
     {
         DrawLifecycle();
+
+        ImGui.SameLine();
+        var overlay = Plugin.Config.EnableDebugOverlay;
+        if (ImGui.Checkbox("World overlay", ref overlay))
+        {
+            Plugin.Config.EnableDebugOverlay = overlay;
+            Plugin.SaveConfig();
+        }
+
         ImGui.Separator();
 
         if (ImGui.CollapsingHeader("Floor scan", ImGuiTreeNodeFlags.DefaultOpen))
@@ -120,6 +129,11 @@ public sealed class DebugWindow : Window
 
         if (f.Mobs.Count > 0 && ImGui.TreeNode($"Mobs##mobs_{f.Mobs.Count}"))
         {
+            // Copy + sort by distance so the closest mobs are at the top. Cheap with <50 mobs.
+            var byDist = new System.Collections.Generic.List<Data.MobEntity>(f.Mobs);
+            byDist.Sort((a, b) => Vector3.Distance(f.SelfPosition, a.Position)
+                                   .CompareTo(Vector3.Distance(f.SelfPosition, b.Position)));
+
             if (ImGui.BeginTable("##mobs", 9, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingFixedFit))
             {
                 ImGui.TableSetupColumn("BaseId");
@@ -132,7 +146,7 @@ public sealed class DebugWindow : Window
                 ImGui.TableSetupColumn("Combat");
                 ImGui.TableSetupColumn("Mimic?");
                 ImGui.TableHeadersRow();
-                foreach (var m in f.Mobs)
+                foreach (var m in byDist)
                 {
                     var geom = AggroMap.Compute(m);
                     ImGui.TableNextRow();
