@@ -69,26 +69,22 @@ public static class AggroMap
 
     public static AggroGeometry Compute(MobEntity mob)
     {
-        var radius = DefaultRadius;
-        var omni = false;
-
-        var row = mob.BaseId != 0 ? Sheet?.GetRowOrDefault(mob.BaseId) : null;
-        if (row is { } r)
-        {
-            // IsOmnidirectional is the closest current-Lumina proxy for "this mob's aggro
-            // ignores facing" (sound + proximity types from the plan). Sight mobs remain
-            // cone-gated on the mob's Rotation.
-            omni = r.IsOmnidirectional;
-            // BNpcBase does not currently expose per-mob aggro range in Lumina. Stick
-            // with the plan's 10y fallback; refined per-mob values land in M2 if needed.
-        }
-
+        // BNpcBase.IsOmnidirectional in Lumina is not the "aggros from any angle" flag it
+        // sounds like (it's closer to "can be targeted from any facing" and is true for
+        // basically every mob). BNpcBase.Aggression from the plan doesn't exist in
+        // current Lumina. Until we source a real aggro-type table — RadarPlugin's
+        // allMobs.json or a hand-curated PotD list — treat every mob as sight-type.
+        //
+        // Mis-classifying a genuinely omni mob as sight means our overlay cone points
+        // one way while the mob can aggro from any angle. M2 planner will still
+        // correctly refuse paths inside the circle's radius, so the worst case is
+        // a visually surprising pull — acceptable for M1 perception.
         return new AggroGeometry(
             Origin: mob.Position,
             Facing: mob.Rotation,
-            Radius: radius,
-            ConeHalfAngle: omni ? MathF.PI : SightConeHalfAngle,
-            Omnidirectional: omni);
+            Radius: DefaultRadius,
+            ConeHalfAngle: SightConeHalfAngle,
+            Omnidirectional: false);
     }
 
     /// <summary>
