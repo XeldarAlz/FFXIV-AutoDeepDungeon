@@ -55,10 +55,9 @@ public sealed class PassageStateTracker : IDisposable
 
     private void OnMapEffect(long a1, uint a2, ushort a3, ushort a4)
     {
-        if (Helpers.DDStateHelper.IsInDeepDungeon())
-        {
-            Svc.Log.Info($"[MapEffect] a1=0x{a1:X} a2={a2} a3={a3} a4={a4}");
-        }
+        // Plan points at (a3=4, a4=8) for passage activation; we haven't observed this
+        // path firing in practice (chat listener below is the primary signal). Kept
+        // armed quietly in case a future ECommons sig update starts catching it.
         if (a3 == 4 && a4 == 8)
         {
             PassageActivated = true;
