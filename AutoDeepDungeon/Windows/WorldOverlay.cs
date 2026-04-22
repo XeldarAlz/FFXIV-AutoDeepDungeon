@@ -30,6 +30,7 @@ public sealed class WorldOverlay : IDisposable
     private const int SegPassage               = 18;
     private const float OutlineThickness       = 2f;
     private const float OutlineThickHighlight  = 3f;
+    private const byte AggroRingAlpha          = 70;   // faded context ring under the cone
 
     public WorldOverlay()
     {
@@ -111,14 +112,17 @@ public sealed class WorldOverlay : IDisposable
             }
             else
             {
+                // Faded full-radius ring = "mob's detection range" context.
+                var ringColor = (color & 0x00FFFFFFu) | ((uint)AggroRingAlpha << 24);
+                dl.AddCircle(geom.Origin, geom.Radius, ringColor, SegAggroOmni, OutlineThickness);
+
+                // Solid cone = "actually aggros here right now (facing-gated)".
                 var half = geom.ConeHalfAngle;
                 var left  = geom.Facing + half;
                 var right = geom.Facing - half;
 
                 dl.AddArc(geom.Origin, geom.Radius, right, left, color, SegAggroCone, thickness);
 
-                // Radial edges from the mob origin to the arc endpoints so the cone reads
-                // as a triangle-ish shape at a glance.
                 var pLeft  = geom.Origin + new Vector3(MathF.Sin(left)  * geom.Radius, 0f, MathF.Cos(left)  * geom.Radius);
                 var pRight = geom.Origin + new Vector3(MathF.Sin(right) * geom.Radius, 0f, MathF.Cos(right) * geom.Radius);
                 dl.AddLine(geom.Origin, pLeft,  0f, color, thickness);
