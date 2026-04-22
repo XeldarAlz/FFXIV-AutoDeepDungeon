@@ -49,10 +49,12 @@ public sealed class WorldOverlay : IDisposable
     private static readonly uint ColorAggroRing    = Rgba(255, 64,  64,  80);
     private static readonly uint ColorMimic        = Rgba(255, 80,  0,   235);
     private static readonly uint ColorMimicRing    = Rgba(255, 80,  0,   90);
-    private static readonly uint ColorTrapLive     = Rgba(255, 40,  40,  230);
-    private static readonly uint ColorTrapPersist  = Rgba(255, 40,  40,  110);
-    private static readonly uint ColorHoardLive    = Rgba(255, 220, 40,  230);
-    private static readonly uint ColorHoardPersist = Rgba(255, 220, 40,  110);
+    private static readonly uint ColorTrap         = Rgba(255, 40,  40,  230);
+    private static readonly uint ColorHoard        = Rgba(255, 220, 40,  230);
+
+    // Live scan and PalacePal-persistent data both have coordinates for the same traps;
+    // a ~3y tolerance collapses them to a single marker (PalacePal-style rendering).
+    private const float DedupDistSq = 9f;
     private static readonly uint ColorCoffer       = Rgba(255, 255, 255, 220);
     private static readonly uint ColorPassageOn    = Rgba(64,  255, 64,  235);
     private static readonly uint ColorPassageOff   = Rgba(160, 160, 160, 180);
@@ -133,30 +135,39 @@ public sealed class WorldOverlay : IDisposable
 
     private static void DrawTraps(ImDrawListPtr dl, FloorState floor, Vector3 self)
     {
-        var persistSq = PersistentDrawRange * PersistentDrawRange;
+        var rangeSq = PersistentDrawRange * PersistentDrawRange;
 
         foreach (var t in floor.Traps)
-            DrawCircleWorld(dl, t.Position, 1.5f, ColorTrapLive, ThicknessHighlight, SegMarker);
+            DrawCircleWorld(dl, t.Position, 1.5f, ColorTrap, ThicknessOutline, SegMarker);
 
         foreach (var p in floor.PersistentTraps)
         {
-            if (Vector3.DistanceSquared(self, p) > persistSq) continue;
-            DrawCircleWorld(dl, p, 1.5f, ColorTrapPersist, ThicknessOutline, SegMarker);
+            if (Vector3.DistanceSquared(self, p) > rangeSq) continue;
+            if (IsCoveredByLive(p, floor.Traps)) continue;
+            DrawCircleWorld(dl, p, 1.5f, ColorTrap, ThicknessOutline, SegMarker);
         }
     }
 
     private static void DrawHoards(ImDrawListPtr dl, FloorState floor, Vector3 self)
     {
-        var persistSq = PersistentDrawRange * PersistentDrawRange;
+        var rangeSq = PersistentDrawRange * PersistentDrawRange;
 
         foreach (var h in floor.Hoards)
-            DrawCircleWorld(dl, h.Position, 1.0f, ColorHoardLive, ThicknessHighlight, SegMarker);
+            DrawCircleWorld(dl, h.Position, 1.0f, ColorHoard, ThicknessOutline, SegMarker);
 
         foreach (var p in floor.PersistentHoards)
         {
-            if (Vector3.DistanceSquared(self, p) > persistSq) continue;
-            DrawCircleWorld(dl, p, 1.0f, ColorHoardPersist, ThicknessOutline, SegMarker);
+            if (Vector3.DistanceSquared(self, p) > rangeSq) continue;
+            if (IsCoveredByLive(p, floor.Hoards)) continue;
+            DrawCircleWorld(dl, p, 1.0f, ColorHoard, ThicknessOutline, SegMarker);
         }
+    }
+
+    private static bool IsCoveredByLive(Vector3 point, IReadOnlyList<EObjEntity> live)
+    {
+        foreach (var e in live)
+            if (Vector3.DistanceSquared(e.Position, point) < DedupDistSq) return true;
+        return false;
     }
 
     private static void DrawCoffers(ImDrawListPtr dl, FloorState floor)
