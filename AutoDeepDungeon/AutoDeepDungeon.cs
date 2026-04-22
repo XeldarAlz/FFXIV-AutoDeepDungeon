@@ -32,6 +32,7 @@ public sealed class Plugin : IDalamudPlugin
     internal static DeathHandler Deaths = null!;
     internal static KillSwitch KillSwitch = null!;
     internal static FloorScanner Floor = null!;
+    internal static PassageStateTracker PassageState = null!;
 
     private static AdgWorldOverlay overlay = null!;
 
@@ -60,6 +61,7 @@ public sealed class Plugin : IDalamudPlugin
         SaveFiles = new SaveFileManager();
         Deaths = new DeathHandler();
         KillSwitch = new KillSwitch();
+        PassageState = new PassageStateTracker();
         Floor = new FloorScanner();
 
         try { PictoService.Initialize(pluginInterface); }
@@ -92,6 +94,7 @@ public sealed class Plugin : IDalamudPlugin
         overlay?.Dispose();
         try { PictoService.Dispose(); } catch { /* best-effort */ }
         Floor?.Dispose();
+        PassageState?.Dispose();
         KillSwitch?.Dispose();
         Deaths?.Dispose();
         SaveFiles?.Dispose();

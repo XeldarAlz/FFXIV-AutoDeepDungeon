@@ -190,20 +190,18 @@ public sealed class FloorScanner : IDisposable
         }
         if (DataIds.IsPassage(dataId))
         {
-            // PassageProgress is a running kill counter on the DD instance, not a
-            // boolean — flips positive after the first kill, way before the cairn
-            // actually lights up. The per-object EventState byte flips when the
-            // passage EObj is lit and interactable, so we read that too and let
-            // the higher bit pick which signal to trust once we've seen real values.
+            // PassageStateTracker listens to MapEffect packets from the server. That's
+            // the same signal PalacePal uses, and lines up with the in-game visual
+            // (cairn lights up the moment the packet arrives). EventState on the EObj
+            // stays 0 on DD passages in practice; PassageProgress on the DD instance
+            // is a kill counter — neither was a usable signal.
             byte eventState;
             unsafe
             {
                 var eobj = (FFXIVClientStructs.FFXIV.Client.Game.Object.EventObject*)obj.Address;
                 eventState = eobj == null ? (byte)0 : eobj->EventState;
             }
-            // Provisional: a non-zero EventState means the cairn has been activated.
-            // Exact value pinned during in-game testing.
-            var active = eventState > 0;
+            var active = Plugin.PassageState?.PassageActivated ?? false;
             passage = new PassageEntity(obj.GameObjectId, dataId, obj.Position, eventState, active);
         }
     }
