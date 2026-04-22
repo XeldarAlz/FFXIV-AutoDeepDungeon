@@ -8,9 +8,11 @@ using ECommons;
 using ECommons.Configuration;
 using ECommons.DalamudServices;
 using ECommons.SimpleGui;
+using Pictomancy;
 using AdgConfigWindow = AutoDeepDungeon.Windows.ConfigWindow;
 using AdgDebugWindow = AutoDeepDungeon.Windows.DebugWindow;
 using AdgSafetyModal = AutoDeepDungeon.Windows.SafetyModal;
+using AdgWorldOverlay = AutoDeepDungeon.Windows.WorldOverlay;
 
 namespace AutoDeepDungeon;
 
@@ -30,6 +32,8 @@ public sealed class Plugin : IDalamudPlugin
     internal static DeathHandler Deaths = null!;
     internal static KillSwitch KillSwitch = null!;
     internal static FloorScanner Floor = null!;
+
+    private static AdgWorldOverlay overlay = null!;
 
     private static AdgSafetyModal safetyModal = null!;
     private static AdgDebugWindow debugWindow = null!;
@@ -58,6 +62,11 @@ public sealed class Plugin : IDalamudPlugin
         KillSwitch = new KillSwitch();
         Floor = new FloorScanner();
 
+        try { PictoService.Initialize(pluginInterface); }
+        catch (Exception ex) { Svc.Log.Warning($"Pictomancy init failed — overlay disabled: {ex.Message}"); }
+
+        overlay = new AdgWorldOverlay();
+
         EzConfigGui.Init(AdgConfigWindow.Draw, windowType: EzConfigGui.WindowType.Both);
 
         safetyModal = new AdgSafetyModal();
@@ -80,6 +89,8 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        overlay?.Dispose();
+        try { PictoService.Dispose(); } catch { /* best-effort */ }
         Floor?.Dispose();
         KillSwitch?.Dispose();
         Deaths?.Dispose();
