@@ -184,15 +184,17 @@ public sealed class WorldOverlay : IDisposable
     }
 
     /// <summary>
-    /// Stroke a horizontal circle as a single ImGui polyline. Behind-camera points break
-    /// the path — we stroke what we have and restart, which clips cleanly at the screen
-    /// edge without drawing garbage lines.
+    /// Stroke a horizontal circle as a single closed polyline. Points the camera can't
+    /// project are skipped; the closing segment spans any gap as a chord. That looks
+    /// better than fragmenting the shape when part of the circle crosses the camera's
+    /// view edge (user-reported: "half circle missing when the trap is near the
+    /// screen edge").
     /// </summary>
     private static void DrawCircleWorld(ImDrawListPtr dl, Vector3 center, float radius,
                                         uint color, float thickness, int segments)
     {
-        var pathHasPoints = false;
-        for (var i = 0; i <= segments; i++)
+        var pointCount = 0;
+        for (var i = 0; i < segments; i++)
         {
             var angle = i * MathF.Tau / segments;
             var world = new Vector3(
@@ -203,30 +205,30 @@ public sealed class WorldOverlay : IDisposable
             if (Svc.GameGui.WorldToScreen(world, out var scr))
             {
                 dl.PathLineTo(scr);
-                pathHasPoints = true;
-            }
-            else if (pathHasPoints)
-            {
-                dl.PathStroke(color, ImDrawFlags.None, thickness);
-                pathHasPoints = false;
+                pointCount++;
             }
         }
-        if (pathHasPoints)
+        if (pointCount >= 2)
             dl.PathStroke(color, ImDrawFlags.Closed, thickness);
+        else
+            dl.PathClear();
     }
 
     /// <summary>
-    /// Stroke a horizontal circular sector: origin → arc samples spanning
+    /// Stroke a horizontal circular sector: origin → arc spanning
     /// [facing − half, facing + half] → back to origin, as a single closed polyline.
     /// </summary>
     private static void DrawSectorWorld(ImDrawListPtr dl, Vector3 origin, float radius,
                                         float facing, float halfAngle,
                                         uint color, float thickness, int arcSegments)
     {
-        if (!Svc.GameGui.WorldToScreen(origin, out var originScr)) return;
+        var pointCount = 0;
+        if (Svc.GameGui.WorldToScreen(origin, out var originScr))
+        {
+            dl.PathLineTo(originScr);
+            pointCount++;
+        }
 
-        dl.PathLineTo(originScr);
-        var arcHasPoints = false;
         for (var i = 0; i <= arcSegments; i++)
         {
             var t = i / (float)arcSegments;
@@ -239,15 +241,10 @@ public sealed class WorldOverlay : IDisposable
             if (Svc.GameGui.WorldToScreen(world, out var scr))
             {
                 dl.PathLineTo(scr);
-                arcHasPoints = true;
-            }
-            else if (arcHasPoints)
-            {
-                dl.PathStroke(color, ImDrawFlags.None, thickness);
-                arcHasPoints = false;
+                pointCount++;
             }
         }
-        if (arcHasPoints)
+        if (pointCount >= 2)
             dl.PathStroke(color, ImDrawFlags.Closed, thickness);
         else
             dl.PathClear();
