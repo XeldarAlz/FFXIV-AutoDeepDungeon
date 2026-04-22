@@ -1,0 +1,22 @@
+{
+  "Author": "XeldarAlz",
+  "Name": "AutoDeepDungeon",
+  "InternalName": "AutoDeepDungeon",
+  "Punchline": "Solo-autopilots Deep Dungeon runs.",
+  "Description": "Automates solo Deep Dungeon runs (Palace of the Dead, Heaven-on-High, Eureka Orthos). Queues, navigates, fights, handles pomanders and bosses. /adg to start. Requires vnavmesh; RotationSolver or WrathCombo; BossMod and PalacePal strongly recommended.",
+  "ApplicableVersion": "any",
+  "RepoUrl": "https://github.com/XeldarAlz/FFXIV-AutoDeepDungeon",
+  "Tags": [
+    "deep dungeon",
+    "palace of the dead",
+    "heaven-on-high",
+    "eureka orthos",
+    "automation"
+  ],
+  "CategoryTags": [
+    "utility"
+  ],
+  "AcceptsFeedback": false,
+  "IconUrl": "",
+  "LoadPriority": 0
+}

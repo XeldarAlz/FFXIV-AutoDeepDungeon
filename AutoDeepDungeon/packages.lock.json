@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0-windows7.0": {
+      "DalamudPackager": {
+        "type": "Direct",
+        "requested": "[14.0.2, )",
+        "resolved": "14.0.2",
+        "contentHash": "dQJeq+8eyHzra4Cg5eZ/3LAeS3/UpvvLriYJGSncMK9LqJ7Q4B6jwcOsxo3PfxVd15xj+IzVFxkPqIBmPQu8/w=="
+      },
+      "DotNet.ReproducibleBuilds": {
+        "type": "Direct",
+        "requested": "[1.2.39, )",
+        "resolved": "1.2.39",
+        "contentHash": "fcFN01tDTIQqDuTwr1jUQK/geofiwjG5DycJQOnC72i1SsLAk1ELe+apBOuZ11UMQG8YKFZG1FgvjZPbqHyatg=="
+      },
+      "Microsoft.Data.Sqlite": {
+        "type": "Direct",
+        "requested": "[9.0.*, )",
+        "resolved": "9.0.15",
+        "contentHash": "/RrKC6M5c1BsvArUniSi6bhLtUyaJFPZLRdNoZyoN6W7CC2Sh0xTGsQ06ue649dRgRoedRdGQZJUQ+/txKUm4g==",
+        "dependencies": {
+          "Microsoft.Data.Sqlite.Core": "9.0.15",
+          "SQLitePCLRaw.bundle_e_sqlite3": "2.1.10",
+          "SQLitePCLRaw.core": "2.1.10"
+        }
+      },
+      "WrathCombo.API": {
+        "type": "Direct",
+        "requested": "[0.5.*, )",
+        "resolved": "0.5.4",
+        "contentHash": "L9aHWAqc/rT+jmn+bdgnocWWncZmb8+15kLEcbrIGg6i6W+EuDnghYhe6PIJuiuqa1Bs6J9wvRjz5hblwP628w=="
+      },
+      "Microsoft.Data.Sqlite.Core": {
+        "type": "Transitive",
+        "resolved": "9.0.15",
+        "contentHash": "WGb3nGPflnBqpHvlM4jhWniGbBaQUxedoiCvc9XB6403EUE6iVE3ZP1cPMS1+UTrAXLBP/c1/qCvezJ40Ly1Zw==",
+        "dependencies": {
+          "SQLitePCLRaw.core": "2.1.10"
+        }
+      },
+      "SQLitePCLRaw.bundle_e_sqlite3": {
+        "type": "Transitive",
+        "resolved": "2.1.10",
+        "contentHash": "UxWuisvZ3uVcVOLJQv7urM/JiQH+v3TmaJc1BLKl5Dxfm/nTzTUrqswCqg/INiYLi61AXnHo1M1JPmPqqLnAdg==",
+        "dependencies": {
+          "SQLitePCLRaw.lib.e_sqlite3": "2.1.10",
+          "SQLitePCLRaw.provider.e_sqlite3": "2.1.10"
+        }
+      },
+      "SQLitePCLRaw.core": {
+        "type": "Transitive",
+        "resolved": "2.1.10",
+        "contentHash": "Ii8JCbC7oiVclaE/mbDEK000EFIJ+ShRPwAvvV89GOZhQ+ZLtlnSWl6ksCNMKu/VGXA4Nfi2B7LhN/QFN9oBcw=="
+      },
+      "SQLitePCLRaw.lib.e_sqlite3": {
+        "type": "Transitive",
+        "resolved": "2.1.10",
+        "contentHash": "mAr69tDbnf3QJpRy2nJz8Qdpebdil00fvycyByR58Cn9eARvR+UiG2Vzsp+4q1tV3ikwiYIjlXCQFc12GfebbA=="
+      },
+      "SQLitePCLRaw.provider.e_sqlite3": {
+        "type": "Transitive",
+        "resolved": "2.1.10",
+        "contentHash": "uZVTi02C1SxqzgT0HqTWatIbWGb40iIkfc3FpFCpE/r7g6K0PqzDUeefL6P6HPhDtc6BacN3yQysfzP7ks+wSQ==",
+        "dependencies": {
+          "SQLitePCLRaw.core": "2.1.10"
+        }
+      },
+      "ecommons": {
+        "type": "Project"
+      },
+      "ecommons.ipc": {
+        "type": "Project",
+        "dependencies": {
+          "ECommons": "[3.1.0.1, )"
+        }
+      },
+      "nightmareui": {
+        "type": "Project",
+        "dependencies": {
+          "ECommons": "[3.1.0.34, )"
+        }
+      }
+    }
+  }
+}
