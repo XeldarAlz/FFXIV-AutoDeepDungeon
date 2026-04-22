@@ -29,6 +29,7 @@ public sealed class Plugin : IDalamudPlugin
     internal static SaveFileManager SaveFiles = null!;
     internal static DeathHandler Deaths = null!;
     internal static KillSwitch KillSwitch = null!;
+    internal static FloorScanner Floor = null!;
 
     private static AdgSafetyModal safetyModal = null!;
     private static AdgDebugWindow debugWindow = null!;
@@ -55,6 +56,7 @@ public sealed class Plugin : IDalamudPlugin
         SaveFiles = new SaveFileManager();
         Deaths = new DeathHandler();
         KillSwitch = new KillSwitch();
+        Floor = new FloorScanner();
 
         EzConfigGui.Init(AdgConfigWindow.Draw, windowType: EzConfigGui.WindowType.Both);
 
@@ -78,6 +80,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        Floor?.Dispose();
         KillSwitch?.Dispose();
         Deaths?.Dispose();
         SaveFiles?.Dispose();

@@ -25,7 +25,12 @@ public sealed class DebugWindow : Window
         DrawLifecycle();
         ImGui.Separator();
 
-        if (ImGui.CollapsingHeader("IPC readiness", ImGuiTreeNodeFlags.DefaultOpen))
+        if (ImGui.CollapsingHeader("Floor scan", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            DrawFloorScan();
+        }
+
+        if (ImGui.CollapsingHeader("IPC readiness"))
         {
             DrawIpcRow(Plugin.Vnav);
             DrawVnavExtras();
@@ -89,6 +94,74 @@ public sealed class DebugWindow : Window
             ImGui.SameLine();
             ImGui.TextDisabled($"(mesh build {prog * 100f:F0}%)");
         }
+    }
+
+    private static void DrawFloorScan()
+    {
+        var f = Plugin.Floor.Current;
+        if (!f.InDeepDungeon)
+        {
+            ImGui.TextDisabled("Not in a Deep Dungeon — scanner idle.");
+            return;
+        }
+        ImGui.Text($"Kind: {f.Kind?.ToString() ?? "?"}  Floor: {f.Floor}  Territory: {f.TerritoryType}");
+        ImGui.Text($"Mobs: {f.Mobs.Count}   Traps: {f.Traps.Count}   Coffers: {f.Coffers.Count}   Hoards: {f.Hoards.Count}   Passage: {(f.Passage == null ? "no" : (f.Passage.Active ? "ACTIVE" : "inactive"))}");
+
+        if (f.Mobs.Count > 0 && ImGui.TreeNode($"Mobs##mobs_{f.Mobs.Count}"))
+        {
+            if (ImGui.BeginTable("##mobs", 6, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingFixedFit))
+            {
+                ImGui.TableSetupColumn("NameId");
+                ImGui.TableSetupColumn("Name");
+                ImGui.TableSetupColumn("HP");
+                ImGui.TableSetupColumn("Dist");
+                ImGui.TableSetupColumn("Combat");
+                ImGui.TableSetupColumn("Mimic?");
+                ImGui.TableHeadersRow();
+                foreach (var m in f.Mobs)
+                {
+                    ImGui.TableNextRow();
+                    ImGui.TableNextColumn(); ImGui.Text(m.NameId.ToString());
+                    ImGui.TableNextColumn(); ImGui.Text(string.IsNullOrEmpty(m.Name) ? "<anon>" : m.Name);
+                    ImGui.TableNextColumn(); ImGui.Text($"{m.CurrentHp}/{m.MaxHp}");
+                    ImGui.TableNextColumn(); ImGui.Text($"{Vector3.Distance(f.SelfPosition, m.Position):F1}y");
+                    ImGui.TableNextColumn(); ImGui.Text(m.InCombat ? "yes" : "");
+                    ImGui.TableNextColumn(); if (m.IsMimicCandidate) ImGui.TextColored(new Vector4(1f, 0.6f, 0.2f, 1f), "MIMIC");
+                }
+                ImGui.EndTable();
+            }
+            ImGui.TreePop();
+        }
+
+        DrawEObjList("Traps",   f.Traps,   f.SelfPosition);
+        DrawEObjList("Coffers", f.Coffers, f.SelfPosition);
+        DrawEObjList("Hoards",  f.Hoards,  f.SelfPosition);
+        if (f.Passage is { } p)
+        {
+            ImGui.Text($"Passage: DataId={p.DataId}  Dist={Vector3.Distance(f.SelfPosition, p.Position):F1}y  Active={p.Active}");
+        }
+    }
+
+    private static void DrawEObjList(string label, System.Collections.Generic.IReadOnlyList<Data.EObjEntity> items, Vector3 self)
+    {
+        if (items.Count == 0) return;
+        if (!ImGui.TreeNode($"{label} ({items.Count})##list_{label}")) return;
+        if (ImGui.BeginTable($"##tbl_{label}", 3, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingFixedFit))
+        {
+            ImGui.TableSetupColumn("DataId");
+            ImGui.TableSetupColumn("Position");
+            ImGui.TableSetupColumn("Dist");
+            ImGui.TableHeadersRow();
+            foreach (var e in items)
+            {
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn(); ImGui.Text(e.DataId.ToString());
+                ImGui.TableNextColumn(); ImGui.Text($"({e.Position.X:F1}, {e.Position.Y:F1}, {e.Position.Z:F1})");
+                ImGui.TableNextColumn(); ImGui.Text($"{Vector3.Distance(self, e.Position):F1}y");
+            }
+            ImGui.EndTable();
+        }
+        ImGui.TreePop();
     }
 
     private static void DrawConfigSnapshot()
