@@ -20,4 +20,9 @@
     <ProjectReference Include="..\NightmareUI\NightmareUI\NightmareUI.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.*" />
+    <PackageReference Include="WrathCombo.API" Version="0.5.*" />
+  </ItemGroup>
+
 </Project>
