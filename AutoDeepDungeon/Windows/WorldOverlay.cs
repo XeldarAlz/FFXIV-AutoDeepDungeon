@@ -9,10 +9,14 @@ using ECommons.DalamudServices;
 namespace AutoDeepDungeon.Windows;
 
 /// <summary>
-/// World-space debug overlay drawn via ImGui's background draw list. We project each
-/// world-space vertex to screen with <see cref="IGameGui.WorldToScreen"/> and stroke the
-/// resulting polylines — the same technique RadarPlugin uses. Much cheaper than
-/// Pictomancy's DX-backed world draws and has no per-frame triangle budget.
+/// World-space debug overlay drawn via ImGui's background draw list. Same technique as
+/// RadarPlugin: per-vertex <see cref="IGameGui.WorldToScreen"/> projection, one
+/// <c>PathStroke</c> per shape (not <c>AddLine</c> per segment).
+///
+/// Classification is taken from <see cref="FloorScanner"/>'s 10Hz snapshot, but positions
+/// and rotations are pulled LIVE from <see cref="Svc.Objects"/> and <see cref="Svc.ClientState"/>
+/// each frame. That keeps moving mobs + the player's own cone anchor smooth at full
+/// game frame rate without running the full scan every frame.
 /// </summary>
 public sealed class WorldOverlay : IDisposable
 {
@@ -20,8 +24,8 @@ public sealed class WorldOverlay : IDisposable
     private const float AggroDrawRange     = 35f;
     private const float PersistentDrawRange= 35f;
 
-    private const int SegCone              = 24;   // each shape now strokes in a single
-    private const int SegCircle            = 40;   // draw call, so higher counts are cheap.
+    private const int SegCone              = 24;
+    private const int SegCircle            = 40;
     private const int SegMarker            = 20;
 
     private const float ThicknessOutline   = 1.8f;
@@ -53,7 +57,8 @@ public sealed class WorldOverlay : IDisposable
     private static readonly uint ColorPassageOn    = Rgba(64,  255, 64,  235);
     private static readonly uint ColorPassageOff   = Rgba(160, 160, 160, 180);
 
-    private static readonly List<MobEntity> mobBuffer = new();
+    private readonly record struct LiveMob(Vector3 Position, float Rotation, bool IsMimic);
+    private static readonly List<LiveMob> liveMobs = new();
 
     private static void Draw()
     {
@@ -61,13 +66,17 @@ public sealed class WorldOverlay : IDisposable
         var floor = Plugin.Floor?.Current;
         if (floor == null || !floor.InDeepDungeon) return;
 
+        // Live self position — FloorScanner's snapshot is 10Hz and would make the
+        // player-anchored visuals stutter.
+        var self = Svc.ClientState.LocalPlayer?.Position ?? floor.SelfPosition;
+
         try
         {
             var dl = ImGui.GetBackgroundDrawList();
-            DrawCircleWorld(dl, floor.SelfPosition, 0.5f, ColorSelf, ThicknessOutline, 16);
-            DrawAggro(dl, floor);
-            DrawTraps(dl, floor);
-            DrawHoards(dl, floor);
+            DrawCircleWorld(dl, self, 0.5f, ColorSelf, ThicknessOutline, 16);
+            DrawAggro(dl, floor, self);
+            DrawTraps(dl, floor, self);
+            DrawHoards(dl, floor, self);
             DrawCoffers(dl, floor);
             DrawPassage(dl, floor);
         }
@@ -77,45 +86,52 @@ public sealed class WorldOverlay : IDisposable
         }
     }
 
-    private static void DrawAggro(ImDrawListPtr dl, FloorState floor)
+    private static void DrawAggro(ImDrawListPtr dl, FloorState floor, Vector3 self)
     {
         var rangeSq = AggroDrawRange * AggroDrawRange;
-        mobBuffer.Clear();
+
+        liveMobs.Clear();
         foreach (var m in floor.Mobs)
         {
             if (m.CurrentHp == 0) continue;
-            if (Vector3.DistanceSquared(floor.SelfPosition, m.Position) > rangeSq) continue;
-            mobBuffer.Add(m);
-        }
-        mobBuffer.Sort(DistanceComparer(floor.SelfPosition));
 
-        var limit = Math.Min(mobBuffer.Count, MaxAggroShapes);
-        for (var i = 0; i < limit; i++)
-        {
-            var m = mobBuffer[i];
-            var geom = AggroMap.Compute(m);
-            var isMimic = m.IsMimicCandidate;
-            var coneColor = isMimic ? ColorMimic : ColorAggroSight;
-            var ringColor = isMimic ? ColorMimicRing : ColorAggroRing;
-            var thickness = isMimic ? ThicknessHighlight : ThicknessOutline;
-
-            // Faded detection-radius ring.
-            DrawCircleWorld(dl, geom.Origin, geom.Radius, ringColor, ThicknessOutline, SegCircle);
-
-            if (geom.Omnidirectional)
+            // Live position/rotation lookup by GameObjectId — keeps the overlay at
+            // frame rate even while FloorScanner runs at 10Hz.
+            Vector3 pos; float rot;
+            var live = Svc.Objects.SearchById(m.ObjectId);
+            if (live != null && !live.IsDead)
             {
-                // Solid full ring already drawn above; bright outline on top for emphasis.
-                DrawCircleWorld(dl, geom.Origin, geom.Radius, coneColor, thickness, SegCircle);
+                pos = live.Position;
+                rot = live.Rotation;
             }
             else
             {
-                DrawSectorWorld(dl, geom.Origin, geom.Radius, geom.Facing, geom.ConeHalfAngle,
-                                coneColor, thickness, SegCone);
+                pos = m.Position;
+                rot = m.Rotation;
             }
+
+            if (Vector3.DistanceSquared(self, pos) > rangeSq) continue;
+            liveMobs.Add(new LiveMob(pos, rot, m.IsMimicCandidate));
+        }
+        // Nearest-first so the MaxAggroShapes cap keeps the closest mobs.
+        liveMobs.Sort(DistanceComparer(self));
+
+        var limit = Math.Min(liveMobs.Count, MaxAggroShapes);
+        for (var i = 0; i < limit; i++)
+        {
+            var lm = liveMobs[i];
+            var coneColor = lm.IsMimic ? ColorMimic : ColorAggroSight;
+            var ringColor = lm.IsMimic ? ColorMimicRing : ColorAggroRing;
+            var thickness = lm.IsMimic ? ThicknessHighlight : ThicknessOutline;
+
+            DrawCircleWorld(dl, lm.Position, AggroMap.DefaultRadius, ringColor, ThicknessOutline, SegCircle);
+            DrawSectorWorld(dl, lm.Position, AggroMap.DefaultRadius,
+                            lm.Rotation, AggroMap.SightConeHalfAngle,
+                            coneColor, thickness, SegCone);
         }
     }
 
-    private static void DrawTraps(ImDrawListPtr dl, FloorState floor)
+    private static void DrawTraps(ImDrawListPtr dl, FloorState floor, Vector3 self)
     {
         var persistSq = PersistentDrawRange * PersistentDrawRange;
 
@@ -124,12 +140,12 @@ public sealed class WorldOverlay : IDisposable
 
         foreach (var p in floor.PersistentTraps)
         {
-            if (Vector3.DistanceSquared(floor.SelfPosition, p) > persistSq) continue;
+            if (Vector3.DistanceSquared(self, p) > persistSq) continue;
             DrawCircleWorld(dl, p, 1.5f, ColorTrapPersist, ThicknessOutline, SegMarker);
         }
     }
 
-    private static void DrawHoards(ImDrawListPtr dl, FloorState floor)
+    private static void DrawHoards(ImDrawListPtr dl, FloorState floor, Vector3 self)
     {
         var persistSq = PersistentDrawRange * PersistentDrawRange;
 
@@ -138,7 +154,7 @@ public sealed class WorldOverlay : IDisposable
 
         foreach (var p in floor.PersistentHoards)
         {
-            if (Vector3.DistanceSquared(floor.SelfPosition, p) > persistSq) continue;
+            if (Vector3.DistanceSquared(self, p) > persistSq) continue;
             DrawCircleWorld(dl, p, 1.0f, ColorHoardPersist, ThicknessOutline, SegMarker);
         }
     }
@@ -157,9 +173,9 @@ public sealed class WorldOverlay : IDisposable
     }
 
     /// <summary>
-    /// Stroke a horizontal circle at <paramref name="center"/> as a single ImGui polyline.
-    /// Behind-camera points break the path — we stroke what we have and restart, which
-    /// gives a natural clip at the screen edge without drawing garbage lines.
+    /// Stroke a horizontal circle as a single ImGui polyline. Behind-camera points break
+    /// the path — we stroke what we have and restart, which clips cleanly at the screen
+    /// edge without drawing garbage lines.
     /// </summary>
     private static void DrawCircleWorld(ImDrawListPtr dl, Vector3 center, float radius,
                                         uint color, float thickness, int segments)
@@ -189,7 +205,7 @@ public sealed class WorldOverlay : IDisposable
     }
 
     /// <summary>
-    /// Stroke a horizontal circular sector: origin → arc spanning
+    /// Stroke a horizontal circular sector: origin → arc samples spanning
     /// [facing − half, facing + half] → back to origin, as a single closed polyline.
     /// </summary>
     private static void DrawSectorWorld(ImDrawListPtr dl, Vector3 origin, float radius,
@@ -216,8 +232,6 @@ public sealed class WorldOverlay : IDisposable
             }
             else if (arcHasPoints)
             {
-                // Arc crossed off-screen mid-way — flush what we have and drop the
-                // origin from the restart so we don't re-draw the radial edge.
                 dl.PathStroke(color, ImDrawFlags.None, thickness);
                 arcHasPoints = false;
             }
@@ -228,7 +242,7 @@ public sealed class WorldOverlay : IDisposable
             dl.PathClear();
     }
 
-    private static Comparison<MobEntity> DistanceComparer(Vector3 self) =>
+    private static Comparison<LiveMob> DistanceComparer(Vector3 self) =>
         (a, b) => Vector3.DistanceSquared(self, a.Position)
                        .CompareTo(Vector3.DistanceSquared(self, b.Position));
 }
