@@ -1,5 +1,8 @@
+using System;
 using AutoDeepDungeon.Configuration;
+using AutoDeepDungeon.Helpers;
 using AutoDeepDungeon.IPC;
+using AutoDeepDungeon.Managers;
 using Dalamud.Plugin;
 using ECommons;
 using ECommons.Configuration;
@@ -22,6 +25,9 @@ public sealed class Plugin : IDalamudPlugin
     internal static BossModIPC BossMod = null!;
     internal static PalacePalReader PalacePal = null!;
 
+    internal static RunLifecycle Lifecycle = null!;
+    internal static SaveFileManager SaveFiles = null!;
+
     private static AdgSafetyModal safetyModal = null!;
     private static AdgDebugWindow debugWindow = null!;
 
@@ -43,6 +49,9 @@ public sealed class Plugin : IDalamudPlugin
         WarnIfMissing(BossMod);
         WarnIfMissing(PalacePal);
 
+        Lifecycle = new RunLifecycle();
+        SaveFiles = new SaveFileManager();
+
         EzConfigGui.Init(AdgConfigWindow.Draw, windowType: EzConfigGui.WindowType.Both);
 
         safetyModal = new AdgSafetyModal();
@@ -56,13 +65,15 @@ public sealed class Plugin : IDalamudPlugin
         EzConfigGui.WindowSystem.AddWindow(debugWindow);
 
         EzCmd.Add("/adg", OnCommand,
-            "Open AutoDeepDungeon. Subcommands: start | stop | config | status | debug (wired in a later milestone).");
+            "AutoDeepDungeon. Subcommands: start | stop | status | config | debug. No arg opens config.");
 
         Svc.Log.Information("AutoDeepDungeon loaded. Master toggle is OFF by default; re-arm per session.");
     }
 
     public void Dispose()
     {
+        SaveFiles?.Dispose();
+        Lifecycle?.Dispose();
         PalacePal?.Dispose();
         ECommonsMain.Dispose();
     }
@@ -88,12 +99,40 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnCommand(string command, string args)
     {
-        var trimmed = args?.Trim() ?? string.Empty;
-        if (string.Equals(trimmed, "debug", System.StringComparison.OrdinalIgnoreCase))
+        var sub = args?.Trim().ToLowerInvariant() ?? string.Empty;
+        switch (sub)
         {
-            OpenDebugWindow();
-            return;
+            case "":
+            case "config":
+                EzConfigGui.Open();
+                return;
+            case "debug":
+                OpenDebugWindow();
+                return;
+            case "start":
+                Lifecycle.Start();
+                return;
+            case "stop":
+                Lifecycle.Stop();
+                return;
+            case "status":
+                PrintStatus();
+                return;
+            default:
+                Svc.Chat.PrintError($"[adg] Unknown subcommand '{sub}'. Try: start | stop | status | config | debug.");
+                return;
         }
-        EzConfigGui.Open();
+    }
+
+    private static void PrintStatus()
+    {
+        var inDd = DDStateHelper.IsInDeepDungeon();
+        var floor = DDStateHelper.CurrentFloor();
+        var kind = DDStateHelper.CurrentDDKind();
+        var since = (DateTime.UtcNow - Lifecycle.StageEnteredAt).TotalSeconds;
+        Svc.Chat.Print(
+            $"[adg] stage={Lifecycle.CurrentStage} ({since:F0}s) " +
+            $"| master={Config.MasterEnabled} | ToS={Config.ToSAccepted} " +
+            $"| inDD={inDd} | floor={floor} | kind={kind?.ToString() ?? "n/a"}");
     }
 }

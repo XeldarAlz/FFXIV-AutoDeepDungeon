@@ -1,4 +1,6 @@
+using System;
 using System.Numerics;
+using AutoDeepDungeon.Helpers;
 using AutoDeepDungeon.IPC;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
@@ -20,7 +22,7 @@ public sealed class DebugWindow : Window
 
     public override void Draw()
     {
-        ImGui.TextDisabled("Current territory: " + Svc.ClientState.TerritoryType);
+        DrawLifecycle();
         ImGui.Separator();
 
         if (ImGui.CollapsingHeader("IPC readiness", ImGuiTreeNodeFlags.DefaultOpen))
@@ -33,6 +35,24 @@ public sealed class DebugWindow : Window
             DrawIpcRow(Plugin.PalacePal);
             DrawPalacePalExtras();
         }
+    }
+
+    private static void DrawLifecycle()
+    {
+        var stage = Plugin.Lifecycle.CurrentStage;
+        var since = (DateTime.UtcNow - Plugin.Lifecycle.StageEnteredAt).TotalSeconds;
+        ImGui.Text($"Stage: {stage}   ({since:F0}s)");
+        ImGui.Text($"Master toggle: {(Plugin.Config.MasterEnabled ? "ON" : "OFF")}   ToS accepted: {Plugin.Config.ToSAccepted}");
+
+        var inDd = DDStateHelper.IsInDeepDungeon();
+        var floor = DDStateHelper.CurrentFloor();
+        var kind = DDStateHelper.CurrentDDKind();
+        ImGui.Text($"In DD: {inDd}   Floor: {floor}   Kind: {kind?.ToString() ?? "n/a"}");
+        ImGui.TextDisabled($"Territory: {Svc.ClientState.TerritoryType}");
+
+        if (ImGui.Button("Start")) Plugin.Lifecycle.Start();
+        ImGui.SameLine();
+        if (ImGui.Button("Stop")) Plugin.Lifecycle.Stop();
     }
 
     private static void DrawIpcRow(IIpcSubscriber sub)
