@@ -1,4 +1,4 @@
-name: Sample PR Builder for SamplePlugin
+name: PR build — AutoDeepDungeon
 
 on:
   pull_request:
@@ -10,16 +10,18 @@ jobs:
     runs-on: windows-2022
 
     env:
-      Solution_Name: SamplePlugin
+      Solution_Name: AutoDeepDungeon
 
     steps:
     - name: Checkout
       uses: actions/checkout@v5
+      with:
+        submodules: recursive
 
     - name: Install .NET
       uses: actions/setup-dotnet@v5
       with:
-        dotnet-version: 9.0.x
+        dotnet-version: 10.0.x
 
     - name: Download Dalamud
       run: |
@@ -27,13 +29,12 @@ jobs:
         Expand-Archive -Force latest.zip "$env:AppData\XIVLauncher\addon\Hooks\dev"
 
     - name: Build with dotnet
-      run: dotnet build --configuration Release
+      run: dotnet build AutoDeepDungeon.sln --configuration Release
 
     - name: Store artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: SamplePlugin
-        path: .\SamplePlugin\bin\x64\Release\SamplePlugin\*
+        name: AutoDeepDungeon
+        path: .\AutoDeepDungeon\bin\x64\Release\AutoDeepDungeon\*
         if-no-files-found: error
-        retention-days: 1
-
+        retention-days: 7
