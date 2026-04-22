@@ -23,7 +23,9 @@ public sealed class SplatoonOverlay : IDisposable
     private const string Namespace         = "adg_overlay";
     private const int   MaxAggroShapes     = 20;
     private const float AggroDrawRange     = 35f;
-    private const float PersistentDrawRange= 35f;
+    // No distance cap on persistent trap/hoard markers — PalacePal shows the whole floor
+    // lit up and the planner wants the full trap set visible for route planning anyway.
+    // Splatoon handles hundreds of fixed-coordinate elements without frame-rate impact.
     private const float DedupDistSq        = 25f;
 
     private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(100);
@@ -153,9 +155,6 @@ public sealed class SplatoonOverlay : IDisposable
                                      IReadOnlyList<EObjEntity> live, IReadOnlyList<Vector3> persistent,
                                      float radius, uint color)
     {
-        var self = Svc.ClientState.LocalPlayer?.Position ?? floor.SelfPosition;
-        var persistSq = PersistentDrawRange * PersistentDrawRange;
-
         dedupBuffer.Clear();
         foreach (var e in live)
         {
@@ -164,7 +163,6 @@ public sealed class SplatoonOverlay : IDisposable
         }
         foreach (var p in persistent)
         {
-            if (Vector3.DistanceSquared(self, p) > persistSq) continue;
             var covered = false;
             foreach (var prev in dedupBuffer)
             {
