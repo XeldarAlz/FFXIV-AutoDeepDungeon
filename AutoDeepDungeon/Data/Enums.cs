@@ -70,3 +70,17 @@ public enum MultiPullTolerance
     Relaxed,
     Aggressive,
 }
+
+public enum Stage
+{
+    Idle,
+    Queueing,
+    Entering,
+    Planning,
+    Executing,
+    Combat,
+    Panic,
+    FloorClear,
+    Descending,
+    Dead,
+}
