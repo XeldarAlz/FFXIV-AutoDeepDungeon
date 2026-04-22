@@ -90,6 +90,11 @@ public sealed class FloorScanner : IDisposable
                     // Don't list the local player or party members as mobs.
                     if (battle.SubKind == (byte)BattleNpcSubKind.Pet ||
                         battle.SubKind == (byte)BattleNpcSubKind.Chocobo) break;
+                    // Filter invisible BattleNpcs the game uses as trap/chest triggers —
+                    // they sit at the EObj's position and would otherwise render a bogus
+                    // aggro footprint exactly on the trap/coffer.
+                    if (!battle.IsTargetable) break;
+                    if (battle.MaxHp == 0) break;
 
                     uint baseId;
                     unsafe

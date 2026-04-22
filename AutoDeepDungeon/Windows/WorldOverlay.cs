@@ -19,18 +19,18 @@ namespace AutoDeepDungeon.Windows;
 /// </summary>
 public sealed class WorldOverlay : IDisposable
 {
-    // Keep per-frame shape counts comfortable. 20 mobs × ~12 segments per shape + a handful
-    // of markers stays well under the 1024-triangle budget.
-    private const int MaxAggroShapes           = 20;
-    private const float PersistentDrawRange    = 50f;   // yalms from self
-    private const int SegAggroCone             = 12;
-    private const int SegAggroOmni             = 16;
-    private const int SegMarkerLive            = 12;
-    private const int SegMarkerPersistent      = 10;
-    private const int SegPassage               = 18;
+    // Pictomancy has per-primitive DX overhead in addition to the 1024-tri cap. Both matter
+    // for frame time — aggressive draw-call limits are how we stay smooth.
+    private const int MaxAggroShapes           = 12;
+    private const float AggroDrawRange         = 35f;   // yalms; further mobs aren't worth drawing
+    private const float PersistentDrawRange    = 35f;   // ditto for saved trap/hoard hints
+    private const int SegAggroCone             = 10;
+    private const int SegAggroOmni             = 12;
+    private const int SegMarkerLive            = 10;
+    private const int SegMarkerPersistent      = 8;
+    private const int SegPassage               = 14;
     private const float OutlineThickness       = 2f;
     private const float OutlineThickHighlight  = 3f;
-    private const byte AggroRingAlpha          = 70;   // faded context ring under the cone
 
     public WorldOverlay()
     {
@@ -87,14 +87,16 @@ public sealed class WorldOverlay : IDisposable
 
     private static void DrawAggro(PctDrawList dl, FloorState floor)
     {
+        var rangeSq = AggroDrawRange * AggroDrawRange;
+
         mobBuffer.Clear();
         foreach (var m in floor.Mobs)
         {
             if (m.CurrentHp == 0) continue;
+            if (Vector3.DistanceSquared(floor.SelfPosition, m.Position) > rangeSq) continue;
             mobBuffer.Add(m);
         }
-        mobBuffer.Sort((a, b) => Vector3.Distance(floor.SelfPosition, a.Position)
-                                       .CompareTo(Vector3.Distance(floor.SelfPosition, b.Position)));
+        mobBuffer.Sort(DistanceComparer(floor.SelfPosition));
 
         var limit = Math.Min(mobBuffer.Count, MaxAggroShapes);
         for (var i = 0; i < limit; i++)
@@ -112,11 +114,6 @@ public sealed class WorldOverlay : IDisposable
             }
             else
             {
-                // Faded full-radius ring = "mob's detection range" context.
-                var ringColor = (color & 0x00FFFFFFu) | ((uint)AggroRingAlpha << 24);
-                dl.AddCircle(geom.Origin, geom.Radius, ringColor, SegAggroOmni, OutlineThickness);
-
-                // Solid cone = "actually aggros here right now (facing-gated)".
                 var half = geom.ConeHalfAngle;
                 var left  = geom.Facing + half;
                 var right = geom.Facing - half;
@@ -130,6 +127,10 @@ public sealed class WorldOverlay : IDisposable
             }
         }
     }
+
+    private static Comparison<MobEntity> DistanceComparer(Vector3 self) =>
+        (a, b) => Vector3.DistanceSquared(self, a.Position)
+                       .CompareTo(Vector3.DistanceSquared(self, b.Position));
 
     private static void DrawTraps(PctDrawList dl, FloorState floor)
     {
