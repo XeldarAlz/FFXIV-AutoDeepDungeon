@@ -2,6 +2,7 @@ using System;
 using System.Numerics;
 using AutoDeepDungeon.Helpers;
 using AutoDeepDungeon.IPC;
+using AutoDeepDungeon.Managers;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using ECommons.DalamudServices;
@@ -112,24 +113,36 @@ public sealed class DebugWindow : Window
             $"Hoards: {f.Hoards.Count} live / {f.PersistentHoards.Count} saved   " +
             $"Passage: {(f.Passage == null ? "no" : (f.Passage.Active ? "ACTIVE" : "inactive"))}");
 
+        var aggroHere = AggroMap.AnyAggroCovers(f, f.SelfPosition);
+        ImGui.Text($"Aggro on self: {(aggroHere ? "YES" : "no")}");
+        ImGui.SameLine();
+        if (aggroHere) ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), "— a mob would pull if we're here");
+
         if (f.Mobs.Count > 0 && ImGui.TreeNode($"Mobs##mobs_{f.Mobs.Count}"))
         {
-            if (ImGui.BeginTable("##mobs", 6, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingFixedFit))
+            if (ImGui.BeginTable("##mobs", 9, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.SizingFixedFit))
             {
+                ImGui.TableSetupColumn("BaseId");
                 ImGui.TableSetupColumn("NameId");
                 ImGui.TableSetupColumn("Name");
                 ImGui.TableSetupColumn("HP");
                 ImGui.TableSetupColumn("Dist");
+                ImGui.TableSetupColumn("Rad");
+                ImGui.TableSetupColumn("Type");
                 ImGui.TableSetupColumn("Combat");
                 ImGui.TableSetupColumn("Mimic?");
                 ImGui.TableHeadersRow();
                 foreach (var m in f.Mobs)
                 {
+                    var geom = AggroMap.Compute(m);
                     ImGui.TableNextRow();
+                    ImGui.TableNextColumn(); ImGui.Text(m.BaseId.ToString());
                     ImGui.TableNextColumn(); ImGui.Text(m.NameId.ToString());
                     ImGui.TableNextColumn(); ImGui.Text(string.IsNullOrEmpty(m.Name) ? "<anon>" : m.Name);
                     ImGui.TableNextColumn(); ImGui.Text($"{m.CurrentHp}/{m.MaxHp}");
                     ImGui.TableNextColumn(); ImGui.Text($"{Vector3.Distance(f.SelfPosition, m.Position):F1}y");
+                    ImGui.TableNextColumn(); ImGui.Text($"{geom.Radius:F0}y");
+                    ImGui.TableNextColumn(); ImGui.Text(geom.Omnidirectional ? "omni" : "cone");
                     ImGui.TableNextColumn(); ImGui.Text(m.InCombat ? "yes" : "");
                     ImGui.TableNextColumn(); if (m.IsMimicCandidate) ImGui.TextColored(new Vector4(1f, 0.6f, 0.2f, 1f), "MIMIC");
                 }
