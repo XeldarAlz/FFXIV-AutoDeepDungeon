@@ -1,0 +1,23 @@
+[
+  {
+    "Author": "XeldarAlz",
+    "Name": "AutoDeepDungeon",
+    "InternalName": "AutoDeepDungeon",
+    "AssemblyVersion": "0.0.0.1",
+    "Description": "Automates solo Deep Dungeon runs (Palace of the Dead, Heaven-on-High, Eureka Orthos).",
+    "ApplicableVersion": "any",
+    "Tags": [
+      "deep dungeon",
+      "palace of the dead",
+      "automation"
+    ],
+    "RepoUrl": "https://github.com/XeldarAlz/FFXIV-AutoDeepDungeon",
+    "IconUrl": "",
+    "DalamudApiLevel": 14,
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadLinkInstall": "https://github.com/XeldarAlz/FFXIV-AutoDeepDungeon/releases/latest/download/AutoDeepDungeon.zip",
+    "DownloadLinkTesting": "https://github.com/XeldarAlz/FFXIV-AutoDeepDungeon/releases/latest/download/AutoDeepDungeon.zip",
+    "DownloadLinkUpdate": "https://github.com/XeldarAlz/FFXIV-AutoDeepDungeon/releases/latest/download/AutoDeepDungeon.zip"
+  }
+]
