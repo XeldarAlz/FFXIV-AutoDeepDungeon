@@ -24,7 +24,7 @@ public sealed class PassageStateTracker : IDisposable
         try
         {
             MapEffect.Init(OnMapEffect);
-            Svc.Log.Debug("[PassageStateTracker] MapEffect hook installed.");
+            Svc.Log.Info("[PassageStateTracker] MapEffect hook installed.");
         }
         catch (Exception ex)
         {
@@ -47,10 +47,17 @@ public sealed class PassageStateTracker : IDisposable
 
     private void OnMapEffect(long a1, uint a2, ushort a3, ushort a4)
     {
+        // Debug: log every packet inside a DD so we can identify the passage-activation
+        // signature. The plan's (a3=4, a4=8) rule didn't match reality — need to observe
+        // what actually fires when the cairn lights up.
+        if (Helpers.DDStateHelper.IsInDeepDungeon())
+        {
+            Svc.Log.Info($"[MapEffect] a1=0x{a1:X} a2={a2} a3={a3} a4={a4}");
+        }
+
         if (a3 == 4 && a4 == 8)
         {
             PassageActivated = true;
-            Svc.Log.Debug($"[PassageStateTracker] Passage activation event: a1=0x{a1:X} a2={a2}");
         }
     }
 }
