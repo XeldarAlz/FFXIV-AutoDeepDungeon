@@ -1,10 +1,8 @@
 # AutoDeepDungeon
 
-A Dalamud plugin that auto-runs FFXIV Deep Dungeons solo — queue, clear,
-requeue. Rule-based, deterministic, no ML.
+A Dalamud plugin that auto-runs FFXIV Deep Dungeons solo — queue.
 
-Pre-alpha. See [deep-dungeon-plugin-plan.md](deep-dungeon-plugin-plan.md)
-for the design and milestone roadmap.
+Pre-alpha.
 
 ## Scope
 
