@@ -3,34 +3,29 @@ using System.Collections.Generic;
 using System.Numerics;
 using AutoDeepDungeon.Data;
 using AutoDeepDungeon.Managers;
+using Dalamud.Bindings.ImGui;
 using ECommons.DalamudServices;
-using Pictomancy;
 
 namespace AutoDeepDungeon.Windows;
 
 /// <summary>
-/// Pictomancy-backed world-space debug overlay. Renders aggro footprints, traps, hoards,
-/// coffers, and passage active-state so the M1 exit criteria can be eyeballed in-game.
-/// Gated on <see cref="Config.EnableDebugOverlay"/>.
-///
-/// Triangle-budget notes: Pictomancy caps a draw list at 1024 triangles per frame. Filled
-/// cones and circles burn the budget fast with DD mob counts, so we render outlines (low
-/// segment counts) and cull distant persistent-data markers.
+/// World-space debug overlay drawn via ImGui's background draw list. We project each
+/// world-space vertex to screen with <see cref="IGameGui.WorldToScreen"/> and stroke the
+/// resulting polylines — the same technique RadarPlugin uses. Much cheaper than
+/// Pictomancy's DX-backed world draws and has no per-frame triangle budget.
 /// </summary>
 public sealed class WorldOverlay : IDisposable
 {
-    // Pictomancy has per-primitive DX overhead in addition to the 1024-tri cap. Both matter
-    // for frame time — aggressive draw-call limits are how we stay smooth.
-    private const int MaxAggroShapes           = 12;
-    private const float AggroDrawRange         = 35f;   // yalms; further mobs aren't worth drawing
-    private const float PersistentDrawRange    = 35f;   // ditto for saved trap/hoard hints
-    private const int SegAggroCone             = 10;
-    private const int SegAggroOmni             = 12;
-    private const int SegMarkerLive            = 10;
-    private const int SegMarkerPersistent      = 8;
-    private const int SegPassage               = 14;
-    private const float OutlineThickness       = 2f;
-    private const float OutlineThickHighlight  = 3f;
+    private const int MaxAggroShapes       = 15;
+    private const float AggroDrawRange     = 35f;
+    private const float PersistentDrawRange= 35f;
+
+    private const int SegCone              = 24;   // each shape now strokes in a single
+    private const int SegCircle            = 40;   // draw call, so higher counts are cheap.
+    private const int SegMarker            = 20;
+
+    private const float ThicknessOutline   = 1.8f;
+    private const float ThicknessHighlight = 2.6f;
 
     public WorldOverlay()
     {
@@ -42,20 +37,20 @@ public sealed class WorldOverlay : IDisposable
         Svc.PluginInterface.UiBuilder.Draw -= Draw;
     }
 
-    // ImGui ABGR packing: (a << 24) | (b << 16) | (g << 8) | r.
     private static uint Rgba(byte r, byte g, byte b, byte a)
         => ((uint)a << 24) | ((uint)b << 16) | ((uint)g << 8) | r;
 
     private static readonly uint ColorSelf         = Rgba(64, 160, 255, 255);
-    private static readonly uint ColorAggroSight   = Rgba(255, 64,  64,  220);
-    private static readonly uint ColorAggroOmni    = Rgba(255, 160, 64,  220);
-    private static readonly uint ColorMimic        = Rgba(255, 80,  0,   230);
+    private static readonly uint ColorAggroSight   = Rgba(255, 64,  64,  230);
+    private static readonly uint ColorAggroRing    = Rgba(255, 64,  64,  80);
+    private static readonly uint ColorMimic        = Rgba(255, 80,  0,   235);
+    private static readonly uint ColorMimicRing    = Rgba(255, 80,  0,   90);
     private static readonly uint ColorTrapLive     = Rgba(255, 40,  40,  230);
     private static readonly uint ColorTrapPersist  = Rgba(255, 40,  40,  110);
     private static readonly uint ColorHoardLive    = Rgba(255, 220, 40,  230);
     private static readonly uint ColorHoardPersist = Rgba(255, 220, 40,  110);
     private static readonly uint ColorCoffer       = Rgba(255, 255, 255, 220);
-    private static readonly uint ColorPassageOn    = Rgba(64,  255, 64,  230);
+    private static readonly uint ColorPassageOn    = Rgba(64,  255, 64,  235);
     private static readonly uint ColorPassageOff   = Rgba(160, 160, 160, 180);
 
     private static readonly List<MobEntity> mobBuffer = new();
@@ -68,11 +63,8 @@ public sealed class WorldOverlay : IDisposable
 
         try
         {
-            using var dl = PictoService.Draw();
-            if (dl == null) return;
-
-            dl.AddCircle(floor.SelfPosition, 0.5f, ColorSelf, 16, OutlineThickness);
-
+            var dl = ImGui.GetBackgroundDrawList();
+            DrawCircleWorld(dl, floor.SelfPosition, 0.5f, ColorSelf, ThicknessOutline, 16);
             DrawAggro(dl, floor);
             DrawTraps(dl, floor);
             DrawHoards(dl, floor);
@@ -85,10 +77,9 @@ public sealed class WorldOverlay : IDisposable
         }
     }
 
-    private static void DrawAggro(PctDrawList dl, FloorState floor)
+    private static void DrawAggro(ImDrawListPtr dl, FloorState floor)
     {
         var rangeSq = AggroDrawRange * AggroDrawRange;
-
         mobBuffer.Clear();
         foreach (var m in floor.Mobs)
         {
@@ -103,69 +94,141 @@ public sealed class WorldOverlay : IDisposable
         {
             var m = mobBuffer[i];
             var geom = AggroMap.Compute(m);
-            var color = m.IsMimicCandidate
-                ? ColorMimic
-                : (geom.Omnidirectional ? ColorAggroOmni : ColorAggroSight);
-            var thickness = m.IsMimicCandidate ? OutlineThickHighlight : OutlineThickness;
+            var isMimic = m.IsMimicCandidate;
+            var coneColor = isMimic ? ColorMimic : ColorAggroSight;
+            var ringColor = isMimic ? ColorMimicRing : ColorAggroRing;
+            var thickness = isMimic ? ThicknessHighlight : ThicknessOutline;
+
+            // Faded detection-radius ring.
+            DrawCircleWorld(dl, geom.Origin, geom.Radius, ringColor, ThicknessOutline, SegCircle);
 
             if (geom.Omnidirectional)
             {
-                dl.AddCircle(geom.Origin, geom.Radius, color, SegAggroOmni, thickness);
+                // Solid full ring already drawn above; bright outline on top for emphasis.
+                DrawCircleWorld(dl, geom.Origin, geom.Radius, coneColor, thickness, SegCircle);
             }
             else
             {
-                var half = geom.ConeHalfAngle;
-                var left  = geom.Facing + half;
-                var right = geom.Facing - half;
-
-                dl.AddArc(geom.Origin, geom.Radius, right, left, color, SegAggroCone, thickness);
-
-                var pLeft  = geom.Origin + new Vector3(MathF.Sin(left)  * geom.Radius, 0f, MathF.Cos(left)  * geom.Radius);
-                var pRight = geom.Origin + new Vector3(MathF.Sin(right) * geom.Radius, 0f, MathF.Cos(right) * geom.Radius);
-                dl.AddLine(geom.Origin, pLeft,  0f, color, thickness);
-                dl.AddLine(geom.Origin, pRight, 0f, color, thickness);
+                DrawSectorWorld(dl, geom.Origin, geom.Radius, geom.Facing, geom.ConeHalfAngle,
+                                coneColor, thickness, SegCone);
             }
         }
+    }
+
+    private static void DrawTraps(ImDrawListPtr dl, FloorState floor)
+    {
+        var persistSq = PersistentDrawRange * PersistentDrawRange;
+
+        foreach (var t in floor.Traps)
+            DrawCircleWorld(dl, t.Position, 1.5f, ColorTrapLive, ThicknessHighlight, SegMarker);
+
+        foreach (var p in floor.PersistentTraps)
+        {
+            if (Vector3.DistanceSquared(floor.SelfPosition, p) > persistSq) continue;
+            DrawCircleWorld(dl, p, 1.5f, ColorTrapPersist, ThicknessOutline, SegMarker);
+        }
+    }
+
+    private static void DrawHoards(ImDrawListPtr dl, FloorState floor)
+    {
+        var persistSq = PersistentDrawRange * PersistentDrawRange;
+
+        foreach (var h in floor.Hoards)
+            DrawCircleWorld(dl, h.Position, 1.0f, ColorHoardLive, ThicknessHighlight, SegMarker);
+
+        foreach (var p in floor.PersistentHoards)
+        {
+            if (Vector3.DistanceSquared(floor.SelfPosition, p) > persistSq) continue;
+            DrawCircleWorld(dl, p, 1.0f, ColorHoardPersist, ThicknessOutline, SegMarker);
+        }
+    }
+
+    private static void DrawCoffers(ImDrawListPtr dl, FloorState floor)
+    {
+        foreach (var c in floor.Coffers)
+            DrawCircleWorld(dl, c.Position, 0.8f, ColorCoffer, ThicknessOutline, SegMarker);
+    }
+
+    private static void DrawPassage(ImDrawListPtr dl, FloorState floor)
+    {
+        if (floor.Passage is not { } p) return;
+        var color = p.Active ? ColorPassageOn : ColorPassageOff;
+        DrawCircleWorld(dl, p.Position, 2.0f, color, ThicknessHighlight, 20);
+    }
+
+    /// <summary>
+    /// Stroke a horizontal circle at <paramref name="center"/> as a single ImGui polyline.
+    /// Behind-camera points break the path — we stroke what we have and restart, which
+    /// gives a natural clip at the screen edge without drawing garbage lines.
+    /// </summary>
+    private static void DrawCircleWorld(ImDrawListPtr dl, Vector3 center, float radius,
+                                        uint color, float thickness, int segments)
+    {
+        var pathHasPoints = false;
+        for (var i = 0; i <= segments; i++)
+        {
+            var angle = i * MathF.Tau / segments;
+            var world = new Vector3(
+                center.X + MathF.Sin(angle) * radius,
+                center.Y,
+                center.Z + MathF.Cos(angle) * radius);
+
+            if (Svc.GameGui.WorldToScreen(world, out var scr))
+            {
+                dl.PathLineTo(scr);
+                pathHasPoints = true;
+            }
+            else if (pathHasPoints)
+            {
+                dl.PathStroke(color, ImDrawFlags.None, thickness);
+                pathHasPoints = false;
+            }
+        }
+        if (pathHasPoints)
+            dl.PathStroke(color, ImDrawFlags.Closed, thickness);
+    }
+
+    /// <summary>
+    /// Stroke a horizontal circular sector: origin → arc spanning
+    /// [facing − half, facing + half] → back to origin, as a single closed polyline.
+    /// </summary>
+    private static void DrawSectorWorld(ImDrawListPtr dl, Vector3 origin, float radius,
+                                        float facing, float halfAngle,
+                                        uint color, float thickness, int arcSegments)
+    {
+        if (!Svc.GameGui.WorldToScreen(origin, out var originScr)) return;
+
+        dl.PathLineTo(originScr);
+        var arcHasPoints = false;
+        for (var i = 0; i <= arcSegments; i++)
+        {
+            var t = i / (float)arcSegments;
+            var angle = (facing - halfAngle) + t * (2f * halfAngle);
+            var world = new Vector3(
+                origin.X + MathF.Sin(angle) * radius,
+                origin.Y,
+                origin.Z + MathF.Cos(angle) * radius);
+
+            if (Svc.GameGui.WorldToScreen(world, out var scr))
+            {
+                dl.PathLineTo(scr);
+                arcHasPoints = true;
+            }
+            else if (arcHasPoints)
+            {
+                // Arc crossed off-screen mid-way — flush what we have and drop the
+                // origin from the restart so we don't re-draw the radial edge.
+                dl.PathStroke(color, ImDrawFlags.None, thickness);
+                arcHasPoints = false;
+            }
+        }
+        if (arcHasPoints)
+            dl.PathStroke(color, ImDrawFlags.Closed, thickness);
+        else
+            dl.PathClear();
     }
 
     private static Comparison<MobEntity> DistanceComparer(Vector3 self) =>
         (a, b) => Vector3.DistanceSquared(self, a.Position)
                        .CompareTo(Vector3.DistanceSquared(self, b.Position));
-
-    private static void DrawTraps(PctDrawList dl, FloorState floor)
-    {
-        foreach (var t in floor.Traps)
-            dl.AddCircle(t.Position, 1.5f, ColorTrapLive, SegMarkerLive, OutlineThickHighlight);
-
-        foreach (var p in floor.PersistentTraps)
-        {
-            if (Vector3.DistanceSquared(floor.SelfPosition, p) > PersistentDrawRange * PersistentDrawRange) continue;
-            dl.AddCircle(p, 1.5f, ColorTrapPersist, SegMarkerPersistent, OutlineThickness);
-        }
-    }
-
-    private static void DrawHoards(PctDrawList dl, FloorState floor)
-    {
-        foreach (var h in floor.Hoards)
-            dl.AddCircle(h.Position, 1.0f, ColorHoardLive, SegMarkerLive, OutlineThickHighlight);
-
-        foreach (var p in floor.PersistentHoards)
-        {
-            if (Vector3.DistanceSquared(floor.SelfPosition, p) > PersistentDrawRange * PersistentDrawRange) continue;
-            dl.AddCircle(p, 1.0f, ColorHoardPersist, SegMarkerPersistent, OutlineThickness);
-        }
-    }
-
-    private static void DrawCoffers(PctDrawList dl, FloorState floor)
-    {
-        foreach (var c in floor.Coffers)
-            dl.AddCircle(c.Position, 0.8f, ColorCoffer, SegMarkerLive, OutlineThickness);
-    }
-
-    private static void DrawPassage(PctDrawList dl, FloorState floor)
-    {
-        if (floor.Passage is not { } p) return;
-        var color = p.Active ? ColorPassageOn : ColorPassageOff;
-        dl.AddCircle(p.Position, 2.0f, color, SegPassage, OutlineThickHighlight);
-    }
 }
