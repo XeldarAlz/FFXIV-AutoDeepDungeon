@@ -91,13 +91,21 @@ public sealed class FloorScanner : IDisposable
                     if (battle.SubKind == (byte)BattleNpcSubKind.Pet ||
                         battle.SubKind == (byte)BattleNpcSubKind.Chocobo) break;
 
+                    uint baseId;
+                    unsafe
+                    {
+                        var chara = (FFXIVClientStructs.FFXIV.Client.Game.Character.Character*)battle.Address;
+                        baseId = chara == null ? 0 : chara->BaseId;
+                    }
+
                     var isMimic =
-                        DataIds.IsMimicBaseId(battle.DataId, kind, floor) ||
+                        DataIds.IsMimicBaseId(baseId, kind, floor) ||
                         battle.NameId == DataIds.MimicBNpcName;
 
                     mobs.Add(new MobEntity(
                         ObjectId: battle.GameObjectId,
                         NameId: battle.NameId,
+                        BaseId: baseId,
                         Name: battle.Name.TextValue,
                         Position: battle.Position,
                         Rotation: battle.Rotation,

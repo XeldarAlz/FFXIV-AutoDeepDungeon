@@ -38,6 +38,7 @@ public sealed record FloorState(
 public sealed record MobEntity(
     ulong ObjectId,
     uint NameId,
+    uint BaseId,
     string Name,
     Vector3 Position,
     float Rotation,
