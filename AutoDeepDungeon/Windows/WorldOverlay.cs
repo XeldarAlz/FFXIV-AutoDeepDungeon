@@ -194,22 +194,38 @@ public sealed class WorldOverlay : IDisposable
     }
 
     /// <summary>
-    /// Draws a screen-space circle at <paramref name="center"/>'s projected position.
-    /// The screen radius is derived from a second world sample so the marker scales with
-    /// camera distance, and ImGui's native clipping handles screen edges cleanly — no
-    /// more half-rendered circles when a trap sits at the edge of the viewport.
+    /// Draws a horizontal ground circle by projecting <paramref name="segments"/> samples
+    /// and stroking each continuous visible run as its own open polyline. Behind-camera
+    /// samples terminate the current segment without forcing a closing chord, so when
+    /// the camera cuts the circle at the screen edge we get a clean partial arc instead
+    /// of a horizontal line across the viewport. Full circles close naturally because
+    /// sample[0] and sample[segments] project to the same screen point.
     /// </summary>
     private static void DrawCircleWorld(ImDrawListPtr dl, Vector3 center, float radius,
                                         uint color, float thickness, int segments)
     {
-        if (!Svc.GameGui.WorldToScreen(center, out var centerScr)) return;
-        // Sample a point one radius along +X. Screen distance between the two projections
-        // gives a correct-magnitude pixels-per-yalm at this world position for this camera.
-        var sample = new Vector3(center.X + radius, center.Y, center.Z);
-        if (!Svc.GameGui.WorldToScreen(sample, out var sampleScr)) return;
-        var screenRadius = Vector2.Distance(centerScr, sampleScr);
-        if (screenRadius < 1f) return;
-        dl.AddCircle(centerScr, screenRadius, color, segments, thickness);
+        var pathHasPoints = false;
+        for (var i = 0; i <= segments; i++)
+        {
+            var angle = i * MathF.Tau / segments;
+            var world = new Vector3(
+                center.X + MathF.Sin(angle) * radius,
+                center.Y,
+                center.Z + MathF.Cos(angle) * radius);
+
+            if (Svc.GameGui.WorldToScreen(world, out var scr))
+            {
+                dl.PathLineTo(scr);
+                pathHasPoints = true;
+            }
+            else if (pathHasPoints)
+            {
+                dl.PathStroke(color, ImDrawFlags.None, thickness);
+                pathHasPoints = false;
+            }
+        }
+        if (pathHasPoints)
+            dl.PathStroke(color, ImDrawFlags.None, thickness);
     }
 
     /// <summary>
