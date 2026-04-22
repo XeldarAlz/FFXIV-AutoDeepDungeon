@@ -124,12 +124,13 @@ All integration via Dalamud IPC. One `IPCSubscriber` class per external plugin, 
 
 Read directly via `Microsoft.Data.Sqlite` in WAL mode. Safe for concurrent access.
 
-- **Path:** `%APPDATA%\XIVLauncher\pluginConfigs\PalacePal\{account}.data.sqlite3` (confirm during impl)
-- **Table:** `ClientLocation`
-- **Query:** `WHERE TerritoryType = @current AND Type IN (1, 2)`
+- **Path:** `%APPDATA%\XIVLauncher\pluginConfigs\PalacePal\palace-pal.data.sqlite3` (verified in M0). Daily `backup-YYYY-MM-DD.data.sqlite3` snapshots live in the same folder and must be skipped.
+- **Table:** `Locations` (verified in M0 — `ClientLocation` was the older Pal-assumed name; real schema uses `Locations`)
+- **Schema columns:** `LocalId INTEGER, TerritoryType INTEGER, Type INTEGER, X REAL, Y REAL, Z REAL, Seen INTEGER, Source INTEGER, SinceVersion TEXT`
+- **Query:** `SELECT TerritoryType, Type, X, Y, Z FROM Locations WHERE TerritoryType = @current AND Type IN (1, 2)`
 - **Type=1 (Trap):** EObj DataIDs `2007182, 2007183, 2007184, 2007185, 2007186, 2009504`
 - **Type=2 (Hoard):** EObj DataIDs `2007542, 2007543`
-- **Cache:** re-query on territory change, hold in memory for the floor.
+- **Cache:** re-query on territory change, hold in memory for the floor. Failures are also cached per territory to avoid retry-spam every frame.
 - **Schema-pinning:** lock against specific PalacePal migration version in plugin manifest; disable gracefully on mismatch.
 
 ### Ephemeral — live IObjectTable scan
