@@ -1,19 +1,25 @@
 using System;
+using Dalamud.Game.Text;
+using Dalamud.Game.Text.SeStringHandling;
 using ECommons.DalamudServices;
 using ECommons.Hooks;
 
 namespace AutoDeepDungeon.Managers;
 
 /// <summary>
-/// Detects when a Cairn of Passage (or HoH/Orthos equivalent) activates by hooking the
-/// server-sent <c>MapEffect</c> packet stream. The plan's activation signature is
-/// <c>data1 == 4 &amp;&amp; data2 == 8</c> — verified against PalacePal's behaviour (it
-/// highlights the passage the moment this packet arrives).
+/// Detects when a Cairn of Passage (HoH: Beacon, Orthos: Pylon) activates.
 ///
-/// Neither <c>InstanceContentDeepDungeon.PassageProgress</c> nor the EObj's
-/// <c>EventState</c> byte flip at the right moment: the former is a kill counter that
-/// increments on the first mob, and the latter stays zero on DD passages in practice.
-/// The packet hook is the only signal that lines up with the in-game visual.
+/// Two signals run in parallel — whichever fires first wins:
+///
+/// 1. Chat-message listener. The game announces 'The Cairn of Passage is activated!'
+///    (etc) to the party channel on activation. User-visible text, locale-dependent,
+///    but matches what PalacePal / the visual overlay do.
+///
+/// 2. ECommons' MapEffect packet hook. The plan pointed at a (data1=4, data2=8) packet
+///    signature; we haven't observed it in practice yet, but we keep the hook armed
+///    with logging so we can pin the real packet values next time.
+///
+/// Both signals cleared on territory change.
 /// </summary>
 public sealed class PassageStateTracker : IDisposable
 {
@@ -28,36 +34,55 @@ public sealed class PassageStateTracker : IDisposable
         }
         catch (Exception ex)
         {
-            Svc.Log.Warning($"[PassageStateTracker] MapEffect hook failed: {ex.Message}. Passage state will be permanently inactive.");
+            Svc.Log.Warning($"[PassageStateTracker] MapEffect hook failed: {ex.Message}. Will rely on chat listener.");
         }
 
+        Svc.Chat.ChatMessage += OnChatMessage;
         Svc.ClientState.TerritoryChanged += OnTerritoryChanged;
     }
 
     public void Dispose()
     {
         Svc.ClientState.TerritoryChanged -= OnTerritoryChanged;
+        Svc.Chat.ChatMessage -= OnChatMessage;
         try { MapEffect.Dispose(); } catch { /* best effort */ }
     }
 
-    private void OnTerritoryChanged(ushort newTerritory)
+    private void OnTerritoryChanged(ushort _)
     {
         PassageActivated = false;
     }
 
     private void OnMapEffect(long a1, uint a2, ushort a3, ushort a4)
     {
-        // Debug: log every packet inside a DD so we can identify the passage-activation
-        // signature. The plan's (a3=4, a4=8) rule didn't match reality — need to observe
-        // what actually fires when the cairn lights up.
         if (Helpers.DDStateHelper.IsInDeepDungeon())
         {
             Svc.Log.Info($"[MapEffect] a1=0x{a1:X} a2={a2} a3={a3} a4={a4}");
         }
-
         if (a3 == 4 && a4 == 8)
         {
             PassageActivated = true;
         }
+    }
+
+    private void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
+    {
+        if (PassageActivated) return;
+        if (!Helpers.DDStateHelper.IsInDeepDungeon()) return;
+
+        // Localised to English for now. Per the plan the same passage EObj concept is
+        // 'Cairn' in PotD, 'Beacon' in HoH, 'Pylon' in Orthos. Matching any of those
+        // plus 'activated' keeps us language-specific for English clients; a
+        // LogMessage-id based check will replace this when we verify the row IDs.
+        var text = message.TextValue;
+        if (string.IsNullOrEmpty(text)) return;
+        if (!(text.Contains("Cairn", StringComparison.OrdinalIgnoreCase) ||
+              text.Contains("Beacon", StringComparison.OrdinalIgnoreCase) ||
+              text.Contains("Pylon", StringComparison.OrdinalIgnoreCase)))
+            return;
+        if (!text.Contains("activated", StringComparison.OrdinalIgnoreCase)) return;
+
+        PassageActivated = true;
+        Svc.Log.Info($"[PassageStateTracker] Activated via chat: '{text}'");
     }
 }
