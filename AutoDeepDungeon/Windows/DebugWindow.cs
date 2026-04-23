@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 using AutoDeepDungeon.Helpers;
 using AutoDeepDungeon.IPC;
@@ -43,6 +44,11 @@ public sealed class DebugWindow : Window
         if (ImGui.CollapsingHeader("Executor", ImGuiTreeNodeFlags.DefaultOpen))
         {
             DrawExecutor();
+        }
+
+        if (ImGui.CollapsingHeader("Planner / PathCost", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            DrawPathCost();
         }
 
         if (ImGui.CollapsingHeader("IPC readiness"))
@@ -178,6 +184,129 @@ public sealed class DebugWindow : Window
         {
             ImGui.Text($"Passage: DataId={p.DataId}  Dist={Vector3.Distance(f.SelfPosition, p.Position):F1}y  EventState={p.EventState}  Active={p.Active}");
         }
+    }
+
+    // Cached result of the last "Score path to passage" async query — drawn each frame
+    // until replaced. Nulling cachedPath means "no query has completed yet".
+    private static List<Vector3>? cachedPath;
+    private static PathScore cachedScore;
+    private static Vector3 cachedSelf;
+    private static Vector3 cachedGoal;
+    private static bool queryInFlight;
+    private static string? queryError;
+    private static DateTime cachedAt = DateTime.MinValue;
+
+    private static void DrawPathCost()
+    {
+        var vnavReady = Plugin.Vnav.IsReady;
+        var floor = Plugin.Floor.Current;
+
+        if (!vnavReady)
+        {
+            ImGui.TextDisabled("vnavmesh not ready — planner disabled.");
+            return;
+        }
+
+        ImGui.TextDisabled(
+            $"Weights: aggro×{Plugin.Config.PlannerAggroPenalty:F0}  " +
+            $"coffer×{Plugin.Config.PlannerCofferReward:F0}  " +
+            $"trap<{Plugin.Config.PlannerTrapAvoidRadius:F1}y  " +
+            $"coffer≤{Plugin.Config.CofferDetourYalms}y  " +
+            $"hyst×{Plugin.Config.PlannerHysteresisRatio:F2}");
+
+        var disabled = queryInFlight || floor.Passage is null;
+        if (disabled) ImGui.BeginDisabled();
+        if (ImGui.Button("Score path to passage"))
+        {
+            KickoffPassageScore(floor);
+        }
+        if (disabled) ImGui.EndDisabled();
+
+        if (floor.Passage is null)
+        {
+            ImGui.SameLine();
+            ImGui.TextDisabled("(no passage in current floor scan)");
+        }
+
+        if (queryInFlight)
+        {
+            ImGui.SameLine();
+            ImGui.TextDisabled("querying vnavmesh…");
+        }
+
+        if (queryError is not null)
+        {
+            ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), $"error: {queryError}");
+        }
+
+        if (cachedPath is { Count: > 0 })
+        {
+            var ago = (DateTime.UtcNow - cachedAt).TotalSeconds;
+            ImGui.Text($"Path: {cachedPath.Count} waypoints   queried {ago:F0}s ago");
+            var fatal = cachedScore.HasTrap;
+            var totalText = fatal ? "FATAL (trap on path)" : $"{cachedScore.Total:F1}";
+            var totalColor = fatal ? new Vector4(1f, 0.4f, 0.4f, 1f) : new Vector4(0.35f, 1.0f, 0.35f, 1f);
+            ImGui.Text("Total:"); ImGui.SameLine(); ImGui.TextColored(totalColor, totalText);
+            ImGui.Text(
+                $"  length {cachedScore.Length:F1}y   " +
+                $"cones {cachedScore.ConeCrossings} (+{cachedScore.ConePenalty:F0})   " +
+                $"coffers {cachedScore.CoffersOnPath} (-{cachedScore.CofferReward:F0})   " +
+                $"trap {(cachedScore.HasTrap ? "YES" : "no")}");
+            if (ImGui.Button("Execute cached path"))
+            {
+                Plugin.Exec.StartWaypoints(cachedPath);
+            }
+            ImGui.SameLine();
+            ImGui.TextDisabled($"goal {cachedGoal.X:F1},{cachedGoal.Y:F1},{cachedGoal.Z:F1}");
+        }
+    }
+
+    private static void KickoffPassageScore(Data.FloorState floor)
+    {
+        var self = Svc.ClientState.LocalPlayer?.Position;
+        var passage = floor.Passage;
+        if (self is null || passage is null) return;
+
+        var pathfind = Plugin.Vnav.Raw.Pathfind;
+        if (pathfind is null)
+        {
+            queryError = "Pathfind IPC unavailable";
+            return;
+        }
+
+        cachedSelf = self.Value;
+        cachedGoal = passage.Position;
+        queryError = null;
+        queryInFlight = true;
+
+        // vnavmesh's Pathfind is async — fire-and-forget and cache the result
+        // on completion. Caught exceptions surface in the panel next frame.
+        _ = pathfind.Invoke(cachedSelf, cachedGoal, false).ContinueWith(t =>
+        {
+            try
+            {
+                if (t.IsFaulted)
+                {
+                    queryError = t.Exception?.GetBaseException().Message ?? "pathfind faulted";
+                    cachedPath = null;
+                    return;
+                }
+                var wps = t.Result;
+                if (wps is null || wps.Count == 0)
+                {
+                    queryError = "vnavmesh returned empty path";
+                    cachedPath = null;
+                    return;
+                }
+                cachedPath = wps;
+                cachedScore = PathCost.Score(wps, Plugin.Floor.Current, PathCostWeights.FromConfig());
+                cachedAt = DateTime.UtcNow;
+            }
+            finally
+            {
+                queryInFlight = false;
+            }
+        });
     }
 
     private static void DrawExecutor()
