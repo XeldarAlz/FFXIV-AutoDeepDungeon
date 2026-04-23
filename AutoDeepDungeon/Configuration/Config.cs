@@ -47,6 +47,11 @@ public sealed class Config
     public float PlannerAggroPenalty = 50f;
     public float PlannerCofferReward = 25f;
     public float PlannerTrapAvoidRadius = 3.5f;
+    // Possible-trap tiles within this radius of the scoring origin (player's
+    // current position) are excluded from the trap check. DD spawn tiles are
+    // often PalacePal-recorded trap locations; without this grace every plan
+    // out of spawn reads FATAL and the planner halts immediately.
+    public float PlannerTrapOriginGrace = 3f;
     // Replan only swaps the active path if a candidate's Total beats the current by this ratio.
     public float PlannerHysteresisRatio = 0.80f;
 

@@ -13,14 +13,16 @@ public readonly record struct PathCostWeights(
     float AggroPenalty,
     float CofferReward,
     float TrapAvoidRadius,
-    float CofferDetourYalms)
+    float CofferDetourYalms,
+    float TrapOriginGraceRadius)
 {
     /// <summary>Hardcoded defaults — used only when Config isn't available (e.g. unit tests).</summary>
     public static PathCostWeights Default { get; } = new(
         AggroPenalty: 50f,
         CofferReward: 25f,
         TrapAvoidRadius: 1.5f,
-        CofferDetourYalms: 10f);
+        CofferDetourYalms: 10f,
+        TrapOriginGraceRadius: 3f);
 
     /// <summary>Reads the current user-tuned weights out of <see cref="Plugin.Config"/>.</summary>
     public static PathCostWeights FromConfig()
@@ -30,7 +32,8 @@ public readonly record struct PathCostWeights(
             AggroPenalty: c.PlannerAggroPenalty,
             CofferReward: c.PlannerCofferReward,
             TrapAvoidRadius: c.PlannerTrapAvoidRadius,
-            CofferDetourYalms: c.CofferDetourYalms);
+            CofferDetourYalms: c.CofferDetourYalms,
+            TrapOriginGraceRadius: c.PlannerTrapOriginGrace);
     }
 }
 
@@ -75,6 +78,18 @@ public static class PathCost
         var hasTrap = false;
         var cofferDetourSq = w.CofferDetourYalms * w.CofferDetourYalms;
 
+        // DD spawn tiles are frequently PalacePal-recorded possible-trap
+        // locations. Without a grace radius around the scoring origin the
+        // first segment always reads FATAL (the player is 'inside' a trap
+        // by the scorer's geometry), which halts every plan out of spawn.
+        // Filter out traps near origin before the segment checks — game-wise
+        // traps only trigger on step-on, so being already-adjacent at plan
+        // time is safe.
+        var origin = waypoints[0];
+        var graceRadiusSq = w.TrapOriginGraceRadius * w.TrapOriginGraceRadius;
+        var effectiveLiveTraps = FilterAwayFromOrigin(state.Traps, origin, graceRadiusSq);
+        var effectivePersistentTraps = FilterAwayFromOrigin(state.PersistentTraps, origin, graceRadiusSq);
+
         for (var i = 0; i < waypoints.Count - 1; i++)
         {
             var a = waypoints[i];
@@ -100,8 +115,8 @@ public static class PathCost
 
             // Traps: closest-point-on-segment rather than sample points — a 1.5y
             // trap radius between 2y samples could otherwise slip through.
-            if (SegmentNearAnyPoint(a, b, state.Traps, w.TrapAvoidRadius) ||
-                SegmentNearAnyVector(a, b, state.PersistentTraps, w.TrapAvoidRadius))
+            if (SegmentNearAnyVector(a, b, effectiveLiveTraps, w.TrapAvoidRadius) ||
+                SegmentNearAnyVector(a, b, effectivePersistentTraps, w.TrapAvoidRadius))
             {
                 hasTrap = true;
             }
@@ -130,20 +145,39 @@ public static class PathCost
         yield return b;
     }
 
-    private static bool SegmentNearAnyPoint(Vector3 a, Vector3 b, IReadOnlyList<EObjEntity> points, float radius)
-    {
-        var rSq = radius * radius;
-        foreach (var p in points)
-            if (DistanceToSegmentSqXz(a, b, p.Position) <= rSq) return true;
-        return false;
-    }
-
     private static bool SegmentNearAnyVector(Vector3 a, Vector3 b, IReadOnlyList<Vector3> points, float radius)
     {
         var rSq = radius * radius;
         foreach (var p in points)
             if (DistanceToSegmentSqXz(a, b, p) <= rSq) return true;
         return false;
+    }
+
+    // XZ-only origin filter — same plane convention as DistanceToSegmentSqXz
+    // so a trap the player is standing on doesn't drop out just because the
+    // navmesh Y happens to differ by a fraction of a yalm.
+    private static List<Vector3> FilterAwayFromOrigin(IReadOnlyList<EObjEntity> items, Vector3 origin, float graceRadiusSq)
+    {
+        var kept = new List<Vector3>(items.Count);
+        foreach (var e in items)
+        {
+            var dx = e.Position.X - origin.X;
+            var dz = e.Position.Z - origin.Z;
+            if (dx * dx + dz * dz > graceRadiusSq) kept.Add(e.Position);
+        }
+        return kept;
+    }
+
+    private static List<Vector3> FilterAwayFromOrigin(IReadOnlyList<Vector3> items, Vector3 origin, float graceRadiusSq)
+    {
+        var kept = new List<Vector3>(items.Count);
+        foreach (var p in items)
+        {
+            var dx = p.X - origin.X;
+            var dz = p.Z - origin.Z;
+            if (dx * dx + dz * dz > graceRadiusSq) kept.Add(p);
+        }
+        return kept;
     }
 
     /// <summary>
