@@ -42,6 +42,14 @@ public sealed class Config
     public KillPolicy KillForAetherpool = KillPolicy.OnPathOnly;
     public MultiPullTolerance MultiPullTolerance = MultiPullTolerance.Strict;
 
+    // PathCost tuning (M2). Total = Length + (cones crossed × penalty) − (coffers seen × reward),
+    // or +∞ if any segment passes within TrapAvoidRadius of a known trap.
+    public float PlannerAggroPenalty = 50f;
+    public float PlannerCofferReward = 25f;
+    public float PlannerTrapAvoidRadius = 1.5f;
+    // Replan only swaps the active path if a candidate's Total beats the current by this ratio.
+    public float PlannerHysteresisRatio = 0.80f;
+
     // Safety
     public int HpEmergencyThresholdPct = 20;
     public int StuckTimeoutSeconds = 45;

@@ -15,12 +15,23 @@ public readonly record struct PathCostWeights(
     float TrapAvoidRadius,
     float CofferDetourYalms)
 {
-    /// <summary>Hardcoded defaults used until config wiring lands in Day 2.2.</summary>
+    /// <summary>Hardcoded defaults — used only when Config isn't available (e.g. unit tests).</summary>
     public static PathCostWeights Default { get; } = new(
         AggroPenalty: 50f,
         CofferReward: 25f,
         TrapAvoidRadius: 1.5f,
         CofferDetourYalms: 10f);
+
+    /// <summary>Reads the current user-tuned weights out of <see cref="Plugin.Config"/>.</summary>
+    public static PathCostWeights FromConfig()
+    {
+        var c = Plugin.Config;
+        return new PathCostWeights(
+            AggroPenalty: c.PlannerAggroPenalty,
+            CofferReward: c.PlannerCofferReward,
+            TrapAvoidRadius: c.PlannerTrapAvoidRadius,
+            CofferDetourYalms: c.CofferDetourYalms);
+    }
 }
 
 /// <summary>Breakdown of a path's cost. Higher Total = worse.</summary>
