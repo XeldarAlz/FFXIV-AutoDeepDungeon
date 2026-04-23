@@ -134,7 +134,7 @@ public static class PathCost
     {
         var rSq = radius * radius;
         foreach (var p in points)
-            if (DistanceToSegmentSq(a, b, p.Position) <= rSq) return true;
+            if (DistanceToSegmentSqXz(a, b, p.Position) <= rSq) return true;
         return false;
     }
 
@@ -142,16 +142,35 @@ public static class PathCost
     {
         var rSq = radius * radius;
         foreach (var p in points)
-            if (DistanceToSegmentSq(a, b, p) <= rSq) return true;
+            if (DistanceToSegmentSqXz(a, b, p) <= rSq) return true;
         return false;
     }
 
-    private static float DistanceToSegmentSq(Vector3 a, Vector3 b, Vector3 p)
+    /// <summary>
+    /// Closest-point-on-segment distance in XZ plane only. Traps are floor
+    /// tiles and the player is always at roughly the same Y as the trap —
+    /// Y differences (stairs, slopes, or just navmesh elevation jitter)
+    /// otherwise make 3D distance overshoot the trap radius and produce
+    /// false negatives.
+    /// </summary>
+    private static float DistanceToSegmentSqXz(Vector3 a, Vector3 b, Vector3 p)
     {
-        var ab = b - a;
-        var abLenSq = ab.LengthSquared();
-        if (abLenSq < 1e-4f) return Vector3.DistanceSquared(a, p);
-        var t = Math.Clamp(Vector3.Dot(p - a, ab) / abLenSq, 0f, 1f);
-        return Vector3.DistanceSquared(p, a + ab * t);
+        var ax = a.X; var az = a.Z;
+        var bx = b.X; var bz = b.Z;
+        var px = p.X; var pz = p.Z;
+        var abx = bx - ax;
+        var abz = bz - az;
+        var abLenSq = abx * abx + abz * abz;
+        if (abLenSq < 1e-4f)
+        {
+            var d1x = px - ax; var d1z = pz - az;
+            return d1x * d1x + d1z * d1z;
+        }
+        var t = Math.Clamp(((px - ax) * abx + (pz - az) * abz) / abLenSq, 0f, 1f);
+        var cx = ax + abx * t;
+        var cz = az + abz * t;
+        var dx = px - cx;
+        var dz = pz - cz;
+        return dx * dx + dz * dz;
     }
 }

@@ -223,10 +223,26 @@ public sealed class PathPlanner : IDisposable
     /// vnav only the Via-point via PathfindAndMoveTo would let vnav re-route
     /// through traps since vnav has no trap awareness. Hysteresis upstream
     /// keeps this from firing every tick.
+    ///
+    /// Fatal plans (trap on route) are NEVER driven. If no non-fatal candidate
+    /// exists the planner halts movement and waits — Safety pomander (M4) will
+    /// later downgrade trap-fatality to a finite penalty so the planner can
+    /// resume; until then, the user needs to intervene.
     /// </summary>
     private void MaybeDrive(Plan plan)
     {
         if (plan.Waypoints.Count == 0) return;
+
+        if (plan.Score.HasTrap)
+        {
+            Svc.Framework.RunOnFrameworkThread(() =>
+            {
+                if (disposed) return;
+                Plugin.Exec.Stop();
+            });
+            LastError = "all candidates cross a trap — movement halted";
+            return;
+        }
 
         // Materialize once on the background thread; the IPC call itself runs on
         // the framework thread because some ECommons internals read ClientState.

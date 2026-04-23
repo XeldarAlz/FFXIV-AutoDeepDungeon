@@ -46,7 +46,7 @@ public sealed class Config
     // or +∞ if any segment passes within TrapAvoidRadius of a known trap.
     public float PlannerAggroPenalty = 50f;
     public float PlannerCofferReward = 25f;
-    public float PlannerTrapAvoidRadius = 1.5f;
+    public float PlannerTrapAvoidRadius = 2.5f;
     // Replan only swaps the active path if a candidate's Total beats the current by this ratio.
     public float PlannerHysteresisRatio = 0.80f;
 
