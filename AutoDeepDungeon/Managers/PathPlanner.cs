@@ -198,6 +198,34 @@ public sealed class PathPlanner : IDisposable
             }
 
             var currentPlan = Current;
+            // Re-score the active plan against the latest FloorState before the
+            // hysteresis check. A trap that just became known (fresh PalacePal
+            // sync, or a Sight-pomander reveal) won't appear in the stored
+            // Score unless we re-evaluate; without this the executor keeps
+            // walking the old-scored-as-safe waypoints straight over the trap.
+            if (currentPlan.Waypoints.Count > 0 && currentPlan.Goal == goal)
+            {
+                var freshScore = PathCost.Score(
+                    currentPlan.Waypoints, Plugin.Floor.Current, PathCostWeights.FromConfig());
+                currentPlan = currentPlan with { Score = freshScore };
+                // Publish the refreshed score so the DebugWindow shows the
+                // actual current status, not the stored-at-plan-creation one.
+                Current = currentPlan;
+            }
+
+            // Current just became trap-crossing and nothing better exists:
+            // halt immediately rather than continuing to walk the fatal path.
+            if (currentPlan.Score.HasTrap && best.Value.Score.HasTrap)
+            {
+                LastError = "all candidates cross a trap — movement halted";
+                Svc.Framework.RunOnFrameworkThread(() =>
+                {
+                    if (disposed) return;
+                    Plugin.Exec.Stop();
+                });
+                return;
+            }
+
             if (!ShouldSwap(currentPlan, goal, best.Value.Score)) return;
 
             var plan = new Plan(goal, from, best.Value.Via, best.Value.Waypoints, best.Value.Score, DateTime.UtcNow);
