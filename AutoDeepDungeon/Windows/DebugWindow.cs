@@ -78,7 +78,7 @@ public sealed class DebugWindow : Window
     {
         var stage = Plugin.Lifecycle.CurrentStage;
         var since = (DateTime.UtcNow - Plugin.Lifecycle.StageEnteredAt).TotalSeconds;
-        ImGui.Text($"Stage: {stage}   ({since:F0}s)");
+        ImGui.Text($"Stage: {stage}   ({since:F0}s)   Floors cleared: {Plugin.Lifecycle.FloorsCleared}");
         ImGui.Text($"Master toggle: {(Plugin.Config.MasterEnabled ? "ON" : "OFF")}   ToS accepted: {Plugin.Config.ToSAccepted}");
 
         var inDd = DDStateHelper.IsInDeepDungeon();
