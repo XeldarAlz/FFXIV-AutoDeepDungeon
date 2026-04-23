@@ -88,7 +88,6 @@ public sealed class PathPlanner : IDisposable
     private PlanGoal activeGoal = PlanGoal.None;
     private DateTime nextTickUtc = DateTime.MinValue;
     private bool disposed;
-    private Vector3 lastDrivenVia = Vector3.Zero;
 
     public PathPlanner()
     {
@@ -113,7 +112,6 @@ public sealed class PathPlanner : IDisposable
     {
         Enabled = false;
         activeGoal = PlanGoal.None;
-        lastDrivenVia = Vector3.Zero;
     }
 
     public void Dispose()
@@ -219,22 +217,24 @@ public sealed class PathPlanner : IDisposable
         }
     }
 
-    /// <summary>Push the plan's Via into the Executor via vnav's live A* iff it's
-    /// meaningfully different from what we last drove toward. 2y threshold
-    /// tolerates float jitter in the snapped detour point without forcing a
-    /// redundant Executor.Start every tick.</summary>
+    /// <summary>
+    /// Push the plan's scored waypoints into the Executor via vnav's Path.MoveTo.
+    /// We scored those exact waypoints for trap and cone avoidance — handing
+    /// vnav only the Via-point via PathfindAndMoveTo would let vnav re-route
+    /// through traps since vnav has no trap awareness. Hysteresis upstream
+    /// keeps this from firing every tick.
+    /// </summary>
     private void MaybeDrive(Plan plan)
     {
-        if (Vector3.DistanceSquared(plan.Via, lastDrivenVia) < 4f) return;
-        lastDrivenVia = plan.Via;
+        if (plan.Waypoints.Count == 0) return;
 
-        // Exec.Start eventually hits vnavmesh IPC — ECommons' EzIPC is thread-safe
-        // but some downstream ClientState reads aren't, so hop to the framework
-        // thread before touching it.
+        // Materialize once on the background thread; the IPC call itself runs on
+        // the framework thread because some ECommons internals read ClientState.
+        var waypoints = new List<Vector3>(plan.Waypoints);
         Svc.Framework.RunOnFrameworkThread(() =>
         {
             if (disposed) return;
-            Plugin.Exec.Start(plan.Via);
+            Plugin.Exec.StartWaypoints(waypoints);
         });
     }
 
