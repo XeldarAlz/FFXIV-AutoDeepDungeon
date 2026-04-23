@@ -31,6 +31,15 @@ public sealed class FloorScanner : IDisposable
     private DateTime nextTick = DateTime.MinValue;
     private int lastFingerprint;
 
+    // Passage EObjs only appear in the ObjectTable within ~80y of the player.
+    // Planning to the passage fails ("no passage in current floor") once you
+    // walk out of range, which breaks Plan Once, auto-drive tick, and every
+    // downstream behavior. Cache the last-seen passage per territory so the
+    // planner keeps the coordinate even when the EObj has dropped out of
+    // live scan range. Cleared on territory change to avoid carrying a
+    // stale passage across floors.
+    private static readonly Dictionary<uint, PassageEntity> knownPassages = new();
+
     public FloorScanner()
     {
         Svc.Framework.Update += Tick;
@@ -48,6 +57,9 @@ public sealed class FloorScanner : IDisposable
         // Drop cached PalacePal snapshots — another client (or PalacePal's server-sync) may
         // have added discoveries to the new territory while we were elsewhere.
         Plugin.PalacePal?.InvalidateCache();
+        // Drop passage cache so we don't carry a stale coordinate from the
+        // previous floor into planning on the new one.
+        knownPassages.Clear();
     }
 
     private void Tick(IFramework framework)
@@ -163,6 +175,18 @@ public sealed class FloorScanner : IDisposable
         }
 
         var (persistentTraps, persistentHoards) = LoadPersistent(territory);
+
+        // Refresh or serve cache. Live passage always wins so Active/EventState
+        // stay current when the player is in range; out-of-range falls back
+        // to the last coordinate we saw on this floor.
+        if (passage is not null)
+        {
+            knownPassages[territory] = passage;
+        }
+        else if (knownPassages.TryGetValue(territory, out var cachedPassage))
+        {
+            passage = cachedPassage;
+        }
 
         return new FloorState(
             InDeepDungeon: true,
