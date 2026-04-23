@@ -256,16 +256,16 @@ public sealed class PathPlanner : IDisposable
     }
 
     /// <summary>
-    /// Push the plan's scored waypoints into the Executor via vnav's Path.MoveTo.
-    /// We scored those exact waypoints for trap and cone avoidance — handing
-    /// vnav only the Via-point via PathfindAndMoveTo would let vnav re-route
-    /// through traps since vnav has no trap awareness. Hysteresis upstream
-    /// keeps this from firing every tick.
+    /// Hybrid drive: direct plans use vnav's live A* (corner-robust, no
+    /// detour forcing needed because there was no trap to route around);
+    /// detour plans use Path.MoveTo with the scored waypoints (forces the
+    /// exact trap-avoidant route since vnav's own A* has no trap awareness
+    /// and would happily reroute through the flagged tile).
     ///
-    /// Fatal plans (trap on route) are NEVER driven. If no non-fatal candidate
-    /// exists the planner halts movement and waits — Safety pomander (M4) will
-    /// later downgrade trap-fatality to a finite penalty so the planner can
-    /// resume; until then, the user needs to intervene.
+    /// Fatal plans (trap unavoidable) NEVER drive. Per-frame safety net in
+    /// Tick() also stops the Executor while Current.Score.HasTrap is true,
+    /// so momentum between async rounds can't carry the character onto
+    /// the flagged trap.
     /// </summary>
     private void MaybeDrive(Plan plan)
     {
@@ -282,14 +282,28 @@ public sealed class PathPlanner : IDisposable
             return;
         }
 
-        // Materialize once on the background thread; the IPC call itself runs on
-        // the framework thread because some ECommons internals read ClientState.
-        var waypoints = new List<Vector3>(plan.Waypoints);
-        Svc.Framework.RunOnFrameworkThread(() =>
+        if (plan.IsDetour)
         {
-            if (disposed) return;
-            Plugin.Exec.StartWaypoints(waypoints);
-        });
+            // Forced route needed — trap detour or aggro sidestep. vnav would
+            // re-route straight through the hazard if we only gave it the Via.
+            var waypoints = new List<Vector3>(plan.Waypoints);
+            Svc.Framework.RunOnFrameworkThread(() =>
+            {
+                if (disposed) return;
+                Plugin.Exec.StartWaypoints(waypoints);
+            });
+        }
+        else
+        {
+            // Direct plan — no hazard on the line. Hand vnav the endpoint and
+            // let live A* own the pathing so corners self-correct.
+            var via = plan.Via;
+            Svc.Framework.RunOnFrameworkThread(() =>
+            {
+                if (disposed) return;
+                Plugin.Exec.Start(via);
+            });
+        }
     }
 
     /// <summary>
