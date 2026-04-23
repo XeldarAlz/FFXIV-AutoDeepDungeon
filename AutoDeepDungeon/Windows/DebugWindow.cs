@@ -240,6 +240,13 @@ public sealed class DebugWindow : Window
         }
         if (noPassage) ImGui.EndDisabled();
 
+        ImGui.SameLine();
+        var autoDrive = planner.AutoDrive;
+        if (ImGui.Checkbox("Auto-drive", ref autoDrive))
+        {
+            planner.AutoDrive = autoDrive;
+        }
+
         if (noPassage)
         {
             ImGui.SameLine();
@@ -259,7 +266,8 @@ public sealed class DebugWindow : Window
         }
 
         var ago = (DateTime.UtcNow - plan.BuiltAt).TotalSeconds;
-        ImGui.Text($"Plan: {plan.Waypoints.Count} waypoints   built {ago:F0}s ago");
+        var viaLabel = plan.IsDetour ? "detour via" : "direct";
+        ImGui.Text($"Plan: {plan.Waypoints.Count} waypoints   built {ago:F0}s ago   [{viaLabel}]");
         var fatal = plan.Score.HasTrap;
         var totalText = fatal ? "FATAL (trap on path)" : $"{plan.Score.Total:F1}";
         var totalColor = fatal ? new Vector4(1f, 0.4f, 0.4f, 1f) : new Vector4(0.35f, 1.0f, 0.35f, 1f);
@@ -269,14 +277,16 @@ public sealed class DebugWindow : Window
             $"cones {plan.Score.ConeCrossings} (+{plan.Score.ConePenalty:F0})   " +
             $"coffers {plan.Score.CoffersOnPath} (-{plan.Score.CofferReward:F0})   " +
             $"trap {(plan.Score.HasTrap ? "YES" : "no")}");
-        if (ImGui.Button("Execute current plan"))
+        if (ImGui.Button("Drive to via"))
         {
-            // Materialize to List<Vector3> because Executor.StartWaypoints wants
-            // the concrete type vnavmesh's IPC expects.
-            Plugin.Exec.StartWaypoints(new List<Vector3>(plan.Waypoints));
+            // Live nav via vnav's A* — corner-robust, unlike the old StartWaypoints
+            // path which walked the pre-computed list literally.
+            Plugin.Exec.Start(plan.Via);
         }
         ImGui.SameLine();
-        ImGui.TextDisabled($"goal {plan.Goal.Point.X:F1},{plan.Goal.Point.Y:F1},{plan.Goal.Point.Z:F1}");
+        ImGui.TextDisabled(
+            $"via {plan.Via.X:F1},{plan.Via.Y:F1},{plan.Via.Z:F1}   " +
+            $"goal {plan.Goal.Point.X:F1},{plan.Goal.Point.Y:F1},{plan.Goal.Point.Z:F1}");
     }
 
     private static void DrawExecutor()

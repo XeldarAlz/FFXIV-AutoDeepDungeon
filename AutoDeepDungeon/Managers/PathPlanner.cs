@@ -20,16 +20,27 @@ public readonly record struct PlanGoal(PlanGoalKind Kind, Vector3 Point)
     public static PlanGoal ToPoint(Vector3 p) => new(PlanGoalKind.Point, p);
 }
 
-/// <summary>One successful pathfind + score, snapshotted at BuiltAt.</summary>
+/// <summary>
+/// One successful pathfind + score, snapshotted at BuiltAt. <see cref="Via"/> is
+/// the immediate nav target the Executor should drive toward via vnav's live A*
+/// (<c>PathfindAndMoveTo</c>): the goal for a direct plan, or the detour midpoint
+/// for a detour plan. Waypoints are kept for overlay and scoring only —
+/// execution never replays them literally, which is what made pre-computed
+/// waypoint plans stick in corners.
+/// </summary>
 public sealed record Plan(
     PlanGoal Goal,
     Vector3 From,
+    Vector3 Via,
     IReadOnlyList<Vector3> Waypoints,
     PathScore Score,
     DateTime BuiltAt)
 {
+    public bool IsDetour => Vector3.DistanceSquared(Via, Goal.Point) > 1f;
+
     public static Plan Empty { get; } = new(
         PlanGoal.None,
+        Vector3.Zero,
         Vector3.Zero,
         Array.Empty<Vector3>(),
         PathScore.Empty,
@@ -61,6 +72,11 @@ public sealed class PathPlanner : IDisposable
 
     public Plan Current { get; private set; } = Plan.Empty;
     public bool Enabled { get; private set; }
+    /// <summary>When true, every successful plan swap auto-invokes
+    /// <see cref="Executor.Start"/> with the plan's Via-point. Replan naturally
+    /// advances past detours as the player progresses — once the obstacle is
+    /// behind them, the direct candidate wins and Via flips to the goal.</summary>
+    public bool AutoDrive { get; set; }
     public bool QueryInFlight { get; private set; }
     public string? LastError { get; private set; }
     public int ReplanCount { get; private set; }
@@ -72,6 +88,7 @@ public sealed class PathPlanner : IDisposable
     private PlanGoal activeGoal = PlanGoal.None;
     private DateTime nextTickUtc = DateTime.MinValue;
     private bool disposed;
+    private Vector3 lastDrivenVia = Vector3.Zero;
 
     public PathPlanner()
     {
@@ -96,6 +113,7 @@ public sealed class PathPlanner : IDisposable
     {
         Enabled = false;
         activeGoal = PlanGoal.None;
+        lastDrivenVia = Vector3.Zero;
     }
 
     public void Dispose()
@@ -184,8 +202,11 @@ public sealed class PathPlanner : IDisposable
             var currentPlan = Current;
             if (!ShouldSwap(currentPlan, goal, best.Value.Score)) return;
 
-            Current = new Plan(goal, from, best.Value.Waypoints, best.Value.Score, DateTime.UtcNow);
+            var plan = new Plan(goal, from, best.Value.Via, best.Value.Waypoints, best.Value.Score, DateTime.UtcNow);
+            Current = plan;
             ReplanCount++;
+
+            if (AutoDrive) MaybeDrive(plan);
         }
         catch (Exception ex)
         {
@@ -196,6 +217,25 @@ public sealed class PathPlanner : IDisposable
         {
             QueryInFlight = false;
         }
+    }
+
+    /// <summary>Push the plan's Via into the Executor via vnav's live A* iff it's
+    /// meaningfully different from what we last drove toward. 2y threshold
+    /// tolerates float jitter in the snapped detour point without forcing a
+    /// redundant Executor.Start every tick.</summary>
+    private void MaybeDrive(Plan plan)
+    {
+        if (Vector3.DistanceSquared(plan.Via, lastDrivenVia) < 4f) return;
+        lastDrivenVia = plan.Via;
+
+        // Exec.Start eventually hits vnavmesh IPC — ECommons' EzIPC is thread-safe
+        // but some downstream ClientState reads aren't, so hop to the framework
+        // thread before touching it.
+        Svc.Framework.RunOnFrameworkThread(() =>
+        {
+            if (disposed) return;
+            Plugin.Exec.Start(plan.Via);
+        });
     }
 
     /// <summary>
@@ -219,7 +259,7 @@ public sealed class PathPlanner : IDisposable
         return best.Total < current.Score.Total * ratio;
     }
 
-    private async Task<(List<Vector3> Waypoints, PathScore Score)?> EvaluateCandidates(Vector3 from, PlanGoal goal)
+    private async Task<(List<Vector3> Waypoints, PathScore Score, Vector3 Via)?> EvaluateCandidates(Vector3 from, PlanGoal goal)
     {
         var pathfind = Plugin.Vnav.Raw.Pathfind;
         if (pathfind is null) { LastError = "Pathfind IPC missing"; return null; }
@@ -238,7 +278,8 @@ public sealed class PathPlanner : IDisposable
         LastCandidatesViable = 1;
 
         var directScore = PathCost.Score(directWps, floorSnapshot, weights);
-        var best = (Waypoints: directWps, Score: directScore);
+        // Direct plans nav straight to the goal — no intermediate via-point.
+        var best = (Waypoints: directWps, Score: directScore, Via: goal.Point);
 
         // Only spend extra Pathfind calls when the direct path has something
         // worth routing around. Clean floors get O(1) queries per tick.
@@ -277,7 +318,10 @@ public sealed class PathPlanner : IDisposable
             LastCandidatesViable++;
             if (score.Total < best.Score.Total)
             {
-                best = (combined, score);
+                // Via is the snapped detour point — Executor lives-navs there first,
+                // and on the next replan with the player past the detour, the
+                // direct candidate will win and Via will flip to the goal.
+                best = (combined, score, snapped.Value);
             }
         }
 
