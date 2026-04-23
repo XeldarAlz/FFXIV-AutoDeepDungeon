@@ -43,6 +43,9 @@ public sealed class SplatoonOverlay : IDisposable
     private static readonly uint ColorCoffer      = Rgba(255, 255, 255, 220);
     private static readonly uint ColorPassageOn   = Rgba(64,  255, 64,  235);
     private static readonly uint ColorPassageOff  = Rgba(160, 160, 160, 180);
+    private static readonly uint ColorPlanPath    = Rgba(0,   200, 255, 230);
+    private static readonly uint ColorPlanPathFat = Rgba(255, 100, 255, 230);
+    private static readonly uint ColorPlanNode    = Rgba(0,   200, 255, 255);
 
     public SplatoonOverlay()
     {
@@ -111,8 +114,45 @@ public sealed class SplatoonOverlay : IDisposable
         if (floor.Passage is { } p)
             elements.Add(MakeFixedCircle(p.Position, 2.0f, p.Active ? ColorPassageOn : ColorPassageOff));
 
+        AddPlannerPath(elements);
+
         if (elements.Count > 0)
             Splatoon.AddDynamicElements(Namespace, elements.ToArray(), 0L);
+    }
+
+    /// <summary>
+    /// Draws the planner's current waypoint list as a polyline so the user can
+    /// see exactly what route the plugin is about to walk. Cyan when the path
+    /// is non-fatal (what the executor will actually drive), magenta when the
+    /// score says HasTrap (which means auto-drive is halted — the segments
+    /// show which trap the route would cross if we ignored the halt).
+    /// </summary>
+    private static void AddPlannerPath(List<Element> elements)
+    {
+        var plan = Plugin.Planner?.Current;
+        if (plan == null || plan.Waypoints.Count < 2) return;
+
+        var color = plan.Score.HasTrap ? ColorPlanPathFat : ColorPlanPath;
+
+        for (var i = 0; i < plan.Waypoints.Count - 1; i++)
+        {
+            var a = plan.Waypoints[i];
+            var b = plan.Waypoints[i + 1];
+            var line = new Element(ElementType.LineBetweenTwoFixedCoordinates)
+            {
+                color = color,
+                thicc = 3f,
+                Enabled = true,
+            };
+            line.SetRefCoord(a);
+            line.SetOffCoord(b);
+            elements.Add(line);
+        }
+
+        // Node markers at each waypoint so it's clear where vnav's turn points
+        // are — useful for spotting when a waypoint lands too close to a trap.
+        foreach (var w in plan.Waypoints)
+            elements.Add(MakeFixedCircle(w, 0.4f, ColorPlanNode));
     }
 
     private static void AddAggroCones(List<Element> elements, FloorState floor)

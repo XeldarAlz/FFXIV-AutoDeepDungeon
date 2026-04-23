@@ -11,15 +11,40 @@ public sealed class RunLifecycle : IDisposable
 {
     public Stage CurrentStage { get; private set; } = Stage.Idle;
     public DateTime StageEnteredAt { get; private set; } = DateTime.UtcNow;
+    public int FloorsCleared { get; private set; }
+
+    private uint lastTerritory;
 
     public RunLifecycle()
     {
         Svc.Framework.Update += Tick;
+        Svc.ClientState.TerritoryChanged += OnTerritoryChanged;
     }
 
     public void Dispose()
     {
+        Svc.ClientState.TerritoryChanged -= OnTerritoryChanged;
         Svc.Framework.Update -= Tick;
+        DisablePlanning();
+    }
+
+    private void OnTerritoryChanged(ushort newTerritory)
+    {
+        // Territory changes when entering a DD, leaving it, or dropping a
+        // floor. If we were planning/executing and this is a floor drop while
+        // still in DD, fold it into the run stats and return to Planning so
+        // the next floor kicks off cleanly.
+        var wasTerritory = lastTerritory;
+        lastTerritory = newTerritory;
+        var inDd = DDStateHelper.IsInDeepDungeon();
+        if (CurrentStage == Stage.Idle) return;
+
+        if (inDd && wasTerritory != newTerritory && wasTerritory != 0)
+        {
+            FloorsCleared++;
+            Svc.Log.Information($"[Lifecycle] Floor dropped → {FloorsCleared} cleared this session.");
+            SetStage(Stage.Planning);
+        }
     }
 
     public void Start()
@@ -40,6 +65,7 @@ public sealed class RunLifecycle : IDisposable
     public void Stop()
     {
         if (CurrentStage == Stage.Idle) return;
+        DisablePlanning();
         LeaveCurrentContentIfNeeded();
         SetStage(Stage.Idle);
     }
@@ -50,6 +76,33 @@ public sealed class RunLifecycle : IDisposable
         Svc.Log.Information($"Stage: {CurrentStage} -> {next}");
         CurrentStage = next;
         StageEnteredAt = DateTime.UtcNow;
+
+        // Planning/Executing/FloorClear all drive the autopath toward the
+        // passage. FloorClear specifically still needs drive because the
+        // passage only activates once the kill count is hit — the character
+        // has to keep walking *into* the passage to trigger the floor drop.
+        // Releasing the planner at FloorClear leaves the character sitting
+        // next to an active passage until something kills them.
+        if (next == Stage.Planning) EnablePlanning();
+        else if (next != Stage.Executing && next != Stage.FloorClear) DisablePlanning();
+    }
+
+    private static void EnablePlanning()
+    {
+        var passage = Plugin.Floor?.Current?.Passage;
+        if (passage is null)
+        {
+            Svc.Log.Warning("[Lifecycle] EnablePlanning — no passage known yet; planner will pick up when one is cached.");
+        }
+        Plugin.Planner.AutoDrive = true;
+        Plugin.Planner.Enable(PlanGoal.ToPassage(passage?.Position ?? System.Numerics.Vector3.Zero));
+    }
+
+    private static void DisablePlanning()
+    {
+        Plugin.Planner.AutoDrive = false;
+        Plugin.Planner.Disable();
+        Plugin.Exec.Stop();
     }
 
     private void Tick(IFramework framework)
@@ -82,17 +135,46 @@ public sealed class RunLifecycle : IDisposable
                 break;
 
             case Stage.Planning:
+                if (!inDd) { SetStage(Stage.Idle); break; }
+                // Planning transitions to Executing the moment the planner
+                // has a viable non-fatal plan — gives us a distinct stage
+                // marker for 'driving toward passage' vs 'still resolving'.
+                if (Plugin.Planner.Current.Waypoints.Count > 0 &&
+                    !Plugin.Planner.Current.Score.HasTrap)
+                {
+                    SetStage(Stage.Executing);
+                }
+                break;
+
             case Stage.Executing:
+                if (!inDd) { SetStage(Stage.Idle); break; }
+                // Passage activates when the kill count is satisfied; walk to
+                // it and wait for the floor transition. FloorClear's job is
+                // just 'approach the passage' — territory change fires us
+                // back into Planning for the next floor.
+                if (Plugin.Floor.Current.Passage is { Active: true })
+                {
+                    SetStage(Stage.FloorClear);
+                }
+                break;
+
+            case Stage.FloorClear:
+                if (!inDd) { SetStage(Stage.Idle); break; }
+                // Territory change handler fires separately and takes us back
+                // to Planning for the next floor. If we somehow end up here
+                // with an inactive passage (pomander triggered descent?),
+                // fall back to Planning.
+                if (Plugin.Floor.Current.Passage is not { Active: true })
+                {
+                    SetStage(Stage.Planning);
+                }
+                break;
+
             case Stage.Combat:
             case Stage.Panic:
-            case Stage.FloorClear:
             case Stage.Descending:
-                if (!inDd)
-                {
-                    // Left the DD unexpectedly (death-exit, disconnect, or /adg stop raced us).
-                    SetStage(Stage.Idle);
-                }
-                // Gameplay-loop transitions land in M1/M2.
+                if (!inDd) SetStage(Stage.Idle);
+                // Combat/Panic/Descending transitions land in M3/M4.
                 break;
 
             case Stage.Dead:

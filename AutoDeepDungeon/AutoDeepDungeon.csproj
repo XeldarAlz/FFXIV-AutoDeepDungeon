@@ -26,4 +26,16 @@
     <PackageReference Include="Pictomancy" Version="0.0.*" />
   </ItemGroup>
 
+  <!-- Dalamud.NET.Sdk 14 zips bin/Release/* into bin/Release/AutoDeepDungeon/latest.zip
+       and then cleans the loose files out of bin/Release/. Dalamud's dev-plugin
+       loader used to read a loose DLL from that folder, so after cleanup the
+       user's dev slot showed "no dll". Copy the persistent obj/Release DLL
+       into bin/Release/ at the end of the build so the loose-file layout is
+       preserved without fighting with the SDK's zip-first pipeline. -->
+  <Target Name="CopyLooseDll" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <Copy SourceFiles="$(IntermediateOutputPath)$(AssemblyName).dll"
+          DestinationFolder="$(OutputPath)"
+          SkipUnchangedFiles="false" />
+  </Target>
+
 </Project>

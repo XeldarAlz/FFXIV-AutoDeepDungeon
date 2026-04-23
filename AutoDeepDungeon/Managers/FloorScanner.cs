@@ -22,7 +22,23 @@ public sealed class FloorScanner : IDisposable
     private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(100);
 
     public FloorState Current { get; private set; } = FloorState.Empty;
+
+    /// <summary>Raised when the floor fingerprint (passage activity, mob set,
+    /// coffer/trap counts) changes between snapshots. Listeners use this to
+    /// trigger an immediate replan rather than waiting on the 200ms cadence.</summary>
+    public event Action? Changed;
+
     private DateTime nextTick = DateTime.MinValue;
+    private int lastFingerprint;
+
+    // Passage EObjs only appear in the ObjectTable within ~80y of the player.
+    // Planning to the passage fails ("no passage in current floor") once you
+    // walk out of range, which breaks Plan Once, auto-drive tick, and every
+    // downstream behavior. Cache the last-seen passage per territory so the
+    // planner keeps the coordinate even when the EObj has dropped out of
+    // live scan range. Cleared on territory change to avoid carrying a
+    // stale passage across floors.
+    private static readonly Dictionary<uint, PassageEntity> knownPassages = new();
 
     public FloorScanner()
     {
@@ -41,6 +57,9 @@ public sealed class FloorScanner : IDisposable
         // Drop cached PalacePal snapshots — another client (or PalacePal's server-sync) may
         // have added discoveries to the new territory while we were elsewhere.
         Plugin.PalacePal?.InvalidateCache();
+        // Drop passage cache so we don't carry a stale coordinate from the
+        // previous floor into planning on the new one.
+        knownPassages.Clear();
     }
 
     private void Tick(IFramework framework)
@@ -51,12 +70,45 @@ public sealed class FloorScanner : IDisposable
 
         try
         {
-            Current = Scan();
+            var scanned = Scan();
+            Current = scanned;
+
+            var fingerprint = Fingerprint(scanned);
+            if (fingerprint != lastFingerprint)
+            {
+                lastFingerprint = fingerprint;
+                Changed?.Invoke();
+            }
         }
         catch (Exception ex)
         {
             Svc.Log.Warning($"[FloorScanner] scan failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Coarse hash of state that the planner cares about: passage activation,
+    /// mob identities + rough positions (2y buckets so trivial patrol drift
+    /// doesn't fire events every tick), coffer and trap counts. Intentionally
+    /// not cryptographic — just change-detection.
+    /// </summary>
+    private static int Fingerprint(FloorState s)
+    {
+        var h = new HashCode();
+        h.Add(s.InDeepDungeon);
+        h.Add(s.Passage?.Active ?? false);
+        h.Add(s.PassageProgress);
+        h.Add(s.Coffers.Count);
+        h.Add(s.Traps.Count);
+        h.Add(s.Hoards.Count);
+        foreach (var m in s.Mobs)
+        {
+            h.Add(m.ObjectId);
+            h.Add((int)(m.Position.X / 2f));
+            h.Add((int)(m.Position.Z / 2f));
+            h.Add(m.CurrentHp > 0);
+        }
+        return h.ToHashCode();
     }
 
     private static FloorState Scan()
@@ -123,6 +175,18 @@ public sealed class FloorScanner : IDisposable
         }
 
         var (persistentTraps, persistentHoards) = LoadPersistent(territory);
+
+        // Refresh or serve cache. Live passage always wins so Active/EventState
+        // stay current when the player is in range; out-of-range falls back
+        // to the last coordinate we saw on this floor.
+        if (passage is not null)
+        {
+            knownPassages[territory] = passage;
+        }
+        else if (knownPassages.TryGetValue(territory, out var cachedPassage))
+        {
+            passage = cachedPassage;
+        }
 
         return new FloorState(
             InDeepDungeon: true,
