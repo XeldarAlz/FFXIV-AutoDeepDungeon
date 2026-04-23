@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using AutoDeepDungeon.Data;
+using Dalamud.Plugin.Services;
 using ECommons.DalamudServices;
 
 namespace AutoDeepDungeon.Managers;
@@ -36,25 +37,77 @@ public sealed record Plan(
 
 /// <summary>
 /// Issues vnavmesh Pathfind queries and scores them with <see cref="PathCost"/>.
-/// Day 3.1 is single-shot only — call <see cref="PlanOnce"/> to trigger a plan;
-/// Day 3.2 adds a 200ms auto-tick; Day 4 adds candidate detours + hysteresis.
+/// Single-shot via <see cref="PlanOnce"/>, or enable the 200ms auto-replan tick
+/// with <see cref="Enable"/>. Day 4 adds candidate detours + hysteresis.
 /// </summary>
 public sealed class PathPlanner : IDisposable
 {
+    // 200ms per the plan's continuous-replanner spec. Anything tighter spams
+    // vnavmesh with redundant queries; looser and the planner stops reacting
+    // to mob patrols inside a combat encounter.
+    private static readonly TimeSpan TickInterval = TimeSpan.FromMilliseconds(200);
+
     public Plan Current { get; private set; } = Plan.Empty;
+    public bool Enabled { get; private set; }
     public bool QueryInFlight { get; private set; }
     public string? LastError { get; private set; }
     public int ReplanCount { get; private set; }
+    public PlanGoal ActiveGoal => activeGoal;
 
+    private PlanGoal activeGoal = PlanGoal.None;
+    private DateTime nextTickUtc = DateTime.MinValue;
     private bool disposed;
+
+    public PathPlanner()
+    {
+        Svc.Framework.Update += Tick;
+    }
 
     /// <summary>Kick a one-shot plan toward <paramref name="goal"/>. Result lands in
     /// <see cref="Current"/> once vnavmesh resolves.</summary>
     public void PlanOnce(PlanGoal goal) => KickPlan(goal);
 
+    /// <summary>Start the 200ms auto-replan loop toward <paramref name="goal"/>.</summary>
+    public void Enable(PlanGoal goal)
+    {
+        activeGoal = goal;
+        Enabled = true;
+        nextTickUtc = DateTime.MinValue; // force immediate plan on next Framework.Update
+    }
+
+    public void Disable()
+    {
+        Enabled = false;
+        activeGoal = PlanGoal.None;
+    }
+
     public void Dispose()
     {
         disposed = true;
+        Svc.Framework.Update -= Tick;
+    }
+
+    private void Tick(IFramework framework)
+    {
+        if (!Enabled) return;
+        if (activeGoal.Kind == PlanGoalKind.None) return;
+        if (QueryInFlight) return;
+        if (DateTime.UtcNow < nextTickUtc) return;
+        nextTickUtc = DateTime.UtcNow + TickInterval;
+
+        // Passage goals re-resolve from FloorState so the planner naturally
+        // follows the passage through floor transitions without the caller
+        // having to re-Enable. Missing passage (between floors / in a cutscene)
+        // just skips this tick.
+        var effective = activeGoal;
+        if (effective.Kind == PlanGoalKind.Passage)
+        {
+            var p = Plugin.Floor.Current.Passage;
+            if (p is null) return;
+            effective = PlanGoal.ToPassage(p.Position);
+        }
+
+        KickPlan(effective);
     }
 
     private void KickPlan(PlanGoal goal)
