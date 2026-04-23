@@ -77,11 +77,14 @@ public sealed class RunLifecycle : IDisposable
         CurrentStage = next;
         StageEnteredAt = DateTime.UtcNow;
 
-        // Planning/Executing drive the autopath. Leaving either releases the
-        // planner so a manual Stop / death / cutscene doesn't leave vnav
-        // walking a stale plan.
+        // Planning/Executing/FloorClear all drive the autopath toward the
+        // passage. FloorClear specifically still needs drive because the
+        // passage only activates once the kill count is hit — the character
+        // has to keep walking *into* the passage to trigger the floor drop.
+        // Releasing the planner at FloorClear leaves the character sitting
+        // next to an active passage until something kills them.
         if (next == Stage.Planning) EnablePlanning();
-        else if (next != Stage.Executing) DisablePlanning();
+        else if (next != Stage.Executing && next != Stage.FloorClear) DisablePlanning();
     }
 
     private static void EnablePlanning()
