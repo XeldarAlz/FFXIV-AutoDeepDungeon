@@ -26,13 +26,4 @@
     <PackageReference Include="Pictomancy" Version="0.0.*" />
   </ItemGroup>
 
-  <!-- Dalamud.NET.Sdk 14 emits only bin/Release/AutoDeepDungeon/latest.zip;
-       Dalamud's dev-plugin loader needs a loose DLL sitting next to the JSON.
-       Extract the zip back onto bin/Release/ after every Release build. -->
-  <Target Name="ExtractPluginZip" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
-    <Unzip SourceFiles="$(OutputPath)$(AssemblyName)\latest.zip"
-           DestinationFolder="$(OutputPath)"
-           OverwriteReadOnlyFiles="true" />
-  </Target>
-
 </Project>
