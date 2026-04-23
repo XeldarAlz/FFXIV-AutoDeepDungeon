@@ -76,6 +76,8 @@ public sealed class PathPlanner : IDisposable
     public PathPlanner()
     {
         Svc.Framework.Update += Tick;
+        Plugin.Floor.Changed += OnFloorChanged;
+        Plugin.Exec.StuckDetected += OnExecutorStuck;
     }
 
     /// <summary>Kick a one-shot plan toward <paramref name="goal"/>. Result lands in
@@ -100,6 +102,27 @@ public sealed class PathPlanner : IDisposable
     {
         disposed = true;
         Svc.Framework.Update -= Tick;
+        if (Plugin.Floor != null) Plugin.Floor.Changed -= OnFloorChanged;
+        if (Plugin.Exec != null) Plugin.Exec.StuckDetected -= OnExecutorStuck;
+    }
+
+    /// <summary>Force the next auto-tick to fire immediately instead of waiting
+    /// out the remaining interval. Used by event hooks that know the floor has
+    /// changed in a way the planner should react to.</summary>
+    private void ForceReplanSoon()
+    {
+        if (!Enabled) return;
+        nextTickUtc = DateTime.MinValue;
+    }
+
+    private void OnFloorChanged() => ForceReplanSoon();
+
+    private void OnExecutorStuck()
+    {
+        // Executor raised its own stuck-retry already; we additionally replan so
+        // that if vnav can't get us to the current candidate at all, we swap to
+        // a different detour rather than banging on the same path forever.
+        ForceReplanSoon();
     }
 
     private void Tick(IFramework framework)

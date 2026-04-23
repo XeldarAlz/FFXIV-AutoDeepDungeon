@@ -22,7 +22,14 @@ public sealed class FloorScanner : IDisposable
     private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(100);
 
     public FloorState Current { get; private set; } = FloorState.Empty;
+
+    /// <summary>Raised when the floor fingerprint (passage activity, mob set,
+    /// coffer/trap counts) changes between snapshots. Listeners use this to
+    /// trigger an immediate replan rather than waiting on the 200ms cadence.</summary>
+    public event Action? Changed;
+
     private DateTime nextTick = DateTime.MinValue;
+    private int lastFingerprint;
 
     public FloorScanner()
     {
@@ -51,12 +58,45 @@ public sealed class FloorScanner : IDisposable
 
         try
         {
-            Current = Scan();
+            var scanned = Scan();
+            Current = scanned;
+
+            var fingerprint = Fingerprint(scanned);
+            if (fingerprint != lastFingerprint)
+            {
+                lastFingerprint = fingerprint;
+                Changed?.Invoke();
+            }
         }
         catch (Exception ex)
         {
             Svc.Log.Warning($"[FloorScanner] scan failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Coarse hash of state that the planner cares about: passage activation,
+    /// mob identities + rough positions (2y buckets so trivial patrol drift
+    /// doesn't fire events every tick), coffer and trap counts. Intentionally
+    /// not cryptographic — just change-detection.
+    /// </summary>
+    private static int Fingerprint(FloorState s)
+    {
+        var h = new HashCode();
+        h.Add(s.InDeepDungeon);
+        h.Add(s.Passage?.Active ?? false);
+        h.Add(s.PassageProgress);
+        h.Add(s.Coffers.Count);
+        h.Add(s.Traps.Count);
+        h.Add(s.Hoards.Count);
+        foreach (var m in s.Mobs)
+        {
+            h.Add(m.ObjectId);
+            h.Add((int)(m.Position.X / 2f));
+            h.Add((int)(m.Position.Z / 2f));
+            h.Add(m.CurrentHp > 0);
+        }
+        return h.ToHashCode();
     }
 
     private static FloorState Scan()
