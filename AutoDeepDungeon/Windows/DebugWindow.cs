@@ -277,6 +277,8 @@ public sealed class DebugWindow : Window
             $"cones {plan.Score.ConeCrossings} (+{plan.Score.ConePenalty:F0})   " +
             $"coffers {plan.Score.CoffersOnPath} (-{plan.Score.CofferReward:F0})   " +
             $"trap {(plan.Score.HasTrap ? "YES" : "no")}");
+        var drivePlanDisabled = plan.Score.HasTrap;
+        if (drivePlanDisabled) ImGui.BeginDisabled();
         if (ImGui.Button("Drive plan"))
         {
             // Match auto-drive: hand vnav the full scored waypoint list via
@@ -284,6 +286,12 @@ public sealed class DebugWindow : Window
             // alone would let vnav re-route through traps since it has no
             // trap awareness.
             Plugin.Exec.StartWaypoints(new List<Vector3>(plan.Waypoints));
+        }
+        if (drivePlanDisabled) ImGui.EndDisabled();
+        if (drivePlanDisabled)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), "(plan is fatal — won't drive)");
         }
         ImGui.SameLine();
         ImGui.TextDisabled(

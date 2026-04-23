@@ -153,6 +153,8 @@ public sealed class PathPlanner : IDisposable
         ForceReplanSoon();
     }
 
+    private int safetyNetLoggedFrames;
+
     private void Tick(IFramework framework)
     {
         // Safety net: while the planner believes the active plan crosses a trap,
@@ -163,6 +165,20 @@ public sealed class PathPlanner : IDisposable
         if (Enabled && AutoDrive && Current.Score.HasTrap && Plugin.Exec.IsRunning)
         {
             Plugin.Exec.Stop();
+            // Log the first few frames the safety net trips so the user can
+            // confirm in /xllog that Stop is actually firing when they see a
+            // fatal plan on the overlay. Throttled to avoid log spam.
+            if (safetyNetLoggedFrames < 5)
+            {
+                safetyNetLoggedFrames++;
+                Svc.Log.Warning(
+                    $"[PathPlanner] Safety-net Stop triggered — plan is fatal (waypoints={Current.Waypoints.Count}, " +
+                    $"length={Current.Score.Length:F1}y, cones={Current.Score.ConeCrossings}).");
+            }
+        }
+        else
+        {
+            safetyNetLoggedFrames = 0;
         }
 
         if (!Enabled) return;
@@ -292,6 +308,9 @@ public sealed class PathPlanner : IDisposable
 
         if (plan.Score.HasTrap)
         {
+            Svc.Log.Warning(
+                $"[PathPlanner] MaybeDrive refusing fatal plan — length={plan.Score.Length:F1}y, " +
+                $"cones={plan.Score.ConeCrossings}, waypoints={plan.Waypoints.Count}.");
             Svc.Framework.RunOnFrameworkThread(() =>
             {
                 if (disposed) return;
