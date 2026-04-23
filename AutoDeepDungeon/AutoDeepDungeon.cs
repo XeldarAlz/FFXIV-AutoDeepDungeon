@@ -33,6 +33,7 @@ public sealed class Plugin : IDalamudPlugin
     internal static FloorScanner Floor = null!;
     internal static PassageStateTracker PassageState = null!;
     internal static Executor Exec = null!;
+    internal static PathPlanner Planner = null!;
 
     internal static AdgSplatoonOverlay Overlay = null!;
 
@@ -64,6 +65,7 @@ public sealed class Plugin : IDalamudPlugin
         PassageState = new PassageStateTracker();
         Floor = new FloorScanner();
         Exec = new Executor();
+        Planner = new PathPlanner();
 
         Overlay = new AdgSplatoonOverlay();
 
@@ -90,6 +92,7 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Overlay?.Dispose();
+        Planner?.Dispose();
         Exec?.Dispose();
         Floor?.Dispose();
         PassageState?.Dispose();
