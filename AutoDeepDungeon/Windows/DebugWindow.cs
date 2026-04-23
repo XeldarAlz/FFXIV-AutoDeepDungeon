@@ -277,11 +277,13 @@ public sealed class DebugWindow : Window
             $"cones {plan.Score.ConeCrossings} (+{plan.Score.ConePenalty:F0})   " +
             $"coffers {plan.Score.CoffersOnPath} (-{plan.Score.CofferReward:F0})   " +
             $"trap {(plan.Score.HasTrap ? "YES" : "no")}");
-        if (ImGui.Button("Drive to via"))
+        if (ImGui.Button("Drive plan"))
         {
-            // Live nav via vnav's A* — corner-robust, unlike the old StartWaypoints
-            // path which walked the pre-computed list literally.
-            Plugin.Exec.Start(plan.Via);
+            // Match auto-drive: hand vnav the full scored waypoint list via
+            // Path.MoveTo so trap avoidance is honored. A live-nav to Via
+            // alone would let vnav re-route through traps since it has no
+            // trap awareness.
+            Plugin.Exec.StartWaypoints(new List<Vector3>(plan.Waypoints));
         }
         ImGui.SameLine();
         ImGui.TextDisabled(
