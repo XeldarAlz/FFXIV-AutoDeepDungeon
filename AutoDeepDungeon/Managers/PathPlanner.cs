@@ -236,13 +236,19 @@ public sealed class PathPlanner : IDisposable
                 return;
             }
 
+            // Drive on EVERY non-fatal round with fresh waypoints. Hysteresis
+            // still gates whether Current changes for display, but driving
+            // needs to track the character's actual position or stale-from
+            // waypoints from P0 get walked while the character is at P1 —
+            // that mismatch is what causes corner-stuck and path re-entering
+            // trap zones the scored-from-P0 path had cleared.
+            var freshPlan = new Plan(goal, from, best.Value.Via, best.Value.Waypoints, best.Value.Score, DateTime.UtcNow);
+            if (AutoDrive) MaybeDrive(freshPlan);
+
             if (!ShouldSwap(currentPlan, goal, best.Value.Score)) return;
 
-            var plan = new Plan(goal, from, best.Value.Via, best.Value.Waypoints, best.Value.Score, DateTime.UtcNow);
-            Current = plan;
+            Current = freshPlan;
             ReplanCount++;
-
-            if (AutoDrive) MaybeDrive(plan);
         }
         catch (Exception ex)
         {
@@ -256,16 +262,16 @@ public sealed class PathPlanner : IDisposable
     }
 
     /// <summary>
-    /// Hybrid drive: direct plans use vnav's live A* (corner-robust, no
-    /// detour forcing needed because there was no trap to route around);
-    /// detour plans use Path.MoveTo with the scored waypoints (forces the
-    /// exact trap-avoidant route since vnav's own A* has no trap awareness
-    /// and would happily reroute through the flagged tile).
+    /// Always drive via Path.MoveTo with the scored waypoint list. Live nav
+    /// (PathfindAndMoveTo) is not safe even for "direct" plans because vnav's
+    /// internal A* runs from the character's current position at execution
+    /// time — not the position we scored from — and has zero trap awareness,
+    /// so it happily reroutes through PalacePal-known trap tiles while our
+    /// scored path avoided them. Pinning vnav to the literal waypoint list
+    /// closes that gap.
     ///
     /// Fatal plans (trap unavoidable) NEVER drive. Per-frame safety net in
-    /// Tick() also stops the Executor while Current.Score.HasTrap is true,
-    /// so momentum between async rounds can't carry the character onto
-    /// the flagged trap.
+    /// Tick() also stops the Executor while Current.Score.HasTrap is true.
     /// </summary>
     private void MaybeDrive(Plan plan)
     {
@@ -282,28 +288,12 @@ public sealed class PathPlanner : IDisposable
             return;
         }
 
-        if (plan.IsDetour)
+        var waypoints = new List<Vector3>(plan.Waypoints);
+        Svc.Framework.RunOnFrameworkThread(() =>
         {
-            // Forced route needed — trap detour or aggro sidestep. vnav would
-            // re-route straight through the hazard if we only gave it the Via.
-            var waypoints = new List<Vector3>(plan.Waypoints);
-            Svc.Framework.RunOnFrameworkThread(() =>
-            {
-                if (disposed) return;
-                Plugin.Exec.StartWaypoints(waypoints);
-            });
-        }
-        else
-        {
-            // Direct plan — no hazard on the line. Hand vnav the endpoint and
-            // let live A* own the pathing so corners self-correct.
-            var via = plan.Via;
-            Svc.Framework.RunOnFrameworkThread(() =>
-            {
-                if (disposed) return;
-                Plugin.Exec.Start(via);
-            });
-        }
+            if (disposed) return;
+            Plugin.Exec.StartWaypoints(waypoints);
+        });
     }
 
     /// <summary>
