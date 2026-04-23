@@ -86,6 +86,13 @@ public sealed class PathPlanner : IDisposable
     public int LastCandidatesViable { get; private set; }
     public PlanGoal ActiveGoal => activeGoal;
 
+    // Stuck-event budget. Three stuck events inside a rolling 30s window
+    // while AutoDrive is on → give up and halt the whole lifecycle, because
+    // continuing to retry the same plan is just going to keep hitting the
+    // same geometry or trap-adjacent waypoint.
+    private static readonly TimeSpan StuckBudgetWindow = TimeSpan.FromSeconds(30);
+    private const int StuckBudgetLimit = 3;
+
     private PlanGoal activeGoal = PlanGoal.None;
     private DateTime nextTickUtc = DateTime.MinValue;
     private bool disposed;
@@ -94,6 +101,7 @@ public sealed class PathPlanner : IDisposable
     // updated. Int-with-Interlocked because the flag can be set from the UI
     // thread while the background evaluation thread reads it.
     private int forceNextSwapFlag;
+    private readonly Queue<DateTime> stuckEventWindow = new();
 
     public PathPlanner()
     {
@@ -151,6 +159,29 @@ public sealed class PathPlanner : IDisposable
         // that if vnav can't get us to the current candidate at all, we swap to
         // a different detour rather than banging on the same path forever.
         ForceReplanSoon();
+
+        if (!AutoDrive) return;
+
+        var now = DateTime.UtcNow;
+        stuckEventWindow.Enqueue(now);
+        while (stuckEventWindow.Count > 0 && now - stuckEventWindow.Peek() > StuckBudgetWindow)
+            stuckEventWindow.Dequeue();
+
+        if (stuckEventWindow.Count >= StuckBudgetLimit)
+        {
+            Svc.Log.Error(
+                $"[PathPlanner] Stuck budget exhausted — {stuckEventWindow.Count} stuck events in " +
+                $"{StuckBudgetWindow.TotalSeconds:F0}s. Halting autopilot; user must /adg start again.");
+            stuckEventWindow.Clear();
+            LastError = $"halted: {StuckBudgetLimit} stuck events in {StuckBudgetWindow.TotalSeconds:F0}s";
+            // Kick back to Idle through the lifecycle so every state it owns
+            // (planner, executor, stage) resets coherently.
+            Svc.Framework.RunOnFrameworkThread(() =>
+            {
+                if (disposed) return;
+                Plugin.Lifecycle?.Stop();
+            });
+        }
     }
 
     private int safetyNetLoggedFrames;
