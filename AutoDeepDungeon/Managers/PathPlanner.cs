@@ -64,6 +64,7 @@ public sealed class PathPlanner : IDisposable
     public bool QueryInFlight { get; private set; }
     public string? LastError { get; private set; }
     public int ReplanCount { get; private set; }
+    public int RoundCount { get; private set; }
     public int LastCandidatesConsidered { get; private set; }
     public int LastCandidatesViable { get; private set; }
     public PlanGoal ActiveGoal => activeGoal;
@@ -150,11 +151,16 @@ public sealed class PathPlanner : IDisposable
         {
             var best = await EvaluateCandidates(from, goal);
             if (disposed) return;
+            RoundCount++;
             if (best is null)
             {
                 LastError ??= "no viable path";
                 return;
             }
+
+            var currentPlan = Current;
+            if (!ShouldSwap(currentPlan, goal, best.Value.Score)) return;
+
             Current = new Plan(goal, from, best.Value.Waypoints, best.Value.Score, DateTime.UtcNow);
             ReplanCount++;
         }
@@ -167,6 +173,27 @@ public sealed class PathPlanner : IDisposable
         {
             QueryInFlight = false;
         }
+    }
+
+    /// <summary>
+    /// Hysteresis gate — only swap to a new candidate when it's meaningfully
+    /// better, so a patrolling mob flicking in and out of the path doesn't
+    /// replace the active plan every tick. Forced swaps: first plan, goal
+    /// changed, or escaping a fatal (trap) current plan.
+    /// </summary>
+    private static bool ShouldSwap(Plan current, PlanGoal goal, PathScore best)
+    {
+        if (current.Waypoints.Count == 0) return true;
+        if (current.Goal != goal) return true;
+
+        // Fatality transitions bypass the ratio: finite is always preferred
+        // over fatal, and we never willingly move from finite into fatal.
+        if (current.Score.HasTrap && !best.HasTrap) return true;
+        if (!current.Score.HasTrap && best.HasTrap) return false;
+        if (current.Score.HasTrap && best.HasTrap) return false;
+
+        var ratio = Plugin.Config.PlannerHysteresisRatio;
+        return best.Total < current.Score.Total * ratio;
     }
 
     private async Task<(List<Vector3> Waypoints, PathScore Score)?> EvaluateCandidates(Vector3 from, PlanGoal goal)

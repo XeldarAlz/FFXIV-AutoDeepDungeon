@@ -209,7 +209,7 @@ public sealed class DebugWindow : Window
         ImGui.TextColored(tickColor, running ? "TICK ON (200ms)" : "tick off");
         ImGui.SameLine();
         ImGui.TextDisabled(
-            $"replans: {planner.ReplanCount}   goal: {planner.ActiveGoal.Kind}   " +
+            $"rounds: {planner.RoundCount}   swaps: {planner.ReplanCount}   goal: {planner.ActiveGoal.Kind}   " +
             $"last round: {planner.LastCandidatesViable}/{planner.LastCandidatesConsidered} viable");
         if (planner.QueryInFlight)
         {
