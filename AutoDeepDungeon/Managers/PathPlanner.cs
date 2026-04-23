@@ -66,10 +66,12 @@ public sealed class PathPlanner : IDisposable
     // to mob patrols inside a combat encounter.
     private static readonly TimeSpan TickInterval = TimeSpan.FromMilliseconds(200);
 
-    // Lateral offsets (yalms) around the direct path's midpoint, perpendicular to
-    // the self→goal line. Four samples is enough coverage to route around a
-    // single aggro cone without blowing the Pathfind budget per tick.
-    private static readonly float[] DetourOffsetsYalms = { -16f, -8f, 8f, 16f };
+    // Lateral offsets (yalms) around the direct path's midpoint, perpendicular
+    // to the self→goal line. Eight samples covers single-trap and dense-cluster
+    // cases — on a trap-heavy floor, the ±6/±10 sweep may all clip while
+    // ±18/±24 finds a gap. Each offset is one extra pair of Pathfind queries;
+    // still well within the 200ms tick budget.
+    private static readonly float[] DetourOffsetsYalms = { -24f, -18f, -12f, -6f, 6f, 12f, 18f, 24f };
 
     public Plan Current { get; private set; } = Plan.Empty;
     public bool Enabled { get; private set; }
@@ -295,20 +297,20 @@ public sealed class PathPlanner : IDisposable
                 return;
             }
 
-            // Drive on EVERY non-fatal round with fresh waypoints. Hysteresis
-            // still gates whether Current changes for display, but driving
-            // needs to track the character's actual position or stale-from
-            // waypoints from P0 get walked while the character is at P1 —
-            // that mismatch is what causes corner-stuck and path re-entering
-            // trap zones the scored-from-P0 path had cleared.
-            var freshPlan = new Plan(goal, from, best.Value.Via, best.Value.Waypoints, best.Value.Score, DateTime.UtcNow);
-            if (AutoDrive) MaybeDrive(freshPlan);
-
             var forceSwap = Interlocked.Exchange(ref forceNextSwapFlag, 0) == 1;
             if (!forceSwap && !ShouldSwap(currentPlan, goal, best.Value.Score)) return;
 
+            var freshPlan = new Plan(goal, from, best.Value.Via, best.Value.Waypoints, best.Value.Score, DateTime.UtcNow);
             Current = freshPlan;
             ReplanCount++;
+
+            // Drive only on actual plan swaps. Re-pushing waypoints every tick
+            // makes vnav reset to waypoint[0] repeatedly, which the character
+            // experiences as jitter (back-and-forth oscillation). Once vnav
+            // has a waypoint list it advances through it on its own; the tick
+            // only needs to hand over a fresh list when the plan meaningfully
+            // changed or the user explicitly re-planned.
+            if (AutoDrive) MaybeDrive(freshPlan);
         }
         catch (Exception ex)
         {
