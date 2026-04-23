@@ -143,6 +143,16 @@ public sealed class PathPlanner : IDisposable
 
     private void Tick(IFramework framework)
     {
+        // Safety net: while the planner believes the active plan crosses a trap,
+        // hold the Executor stopped on every framework update. The async
+        // re-scoring in EvaluateAndStore only runs once per 200ms round, but
+        // vnav's Path.MoveTo can carry the character several yalms in the gap
+        // — enough to cross a trap before the halt logic re-fires.
+        if (Enabled && AutoDrive && Current.Score.HasTrap && Plugin.Exec.IsRunning)
+        {
+            Plugin.Exec.Stop();
+        }
+
         if (!Enabled) return;
         if (activeGoal.Kind == PlanGoalKind.None) return;
         if (QueryInFlight) return;
