@@ -204,6 +204,33 @@ public sealed class DebugWindow : Window
             $"coffer≤{Plugin.Config.CofferDetourYalms}y  " +
             $"hyst×{Plugin.Config.PlannerHysteresisRatio:F2}");
 
+        if (floor.Passage is { } passageInfo)
+        {
+            var dist = Vector3.Distance(floor.SelfPosition, passageInfo.Position);
+            ImGui.TextDisabled(
+                $"Passage: {passageInfo.Position.X:F1},{passageInfo.Position.Y:F1},{passageInfo.Position.Z:F1}  " +
+                $"({dist:F1}y)");
+        }
+
+        if (ImGui.Button("Rebuild vnav navmesh"))
+        {
+            // Paths going through walls usually mean vnav's navmesh has stale
+            // or corrupt connections. Rebuild via IPC — this is equivalent to
+            // running /vnav rebuild in-game.
+            try
+            {
+                var rebuilt = Plugin.Vnav.Raw.Rebuild?.Invoke() ?? false;
+                Svc.Log.Information($"[Planner] Rebuild requested — IPC returned {rebuilt}.");
+            }
+            catch (Exception ex)
+            {
+                Svc.Log.Warning($"[Planner] Rebuild failed: {ex.Message}");
+            }
+        }
+        ImGui.SameLine();
+        ImGui.TextDisabled("(rebuild then Plan once again if paths clip geometry)");
+        ImGui.Separator();
+
         var running = planner.Enabled;
         var tickColor = running ? new Vector4(0.35f, 1.0f, 0.35f, 1f) : new Vector4(0.7f, 0.7f, 0.7f, 1f);
         ImGui.TextColored(tickColor, running ? "TICK ON (200ms)" : "tick off");
