@@ -208,7 +208,9 @@ public sealed class DebugWindow : Window
         var tickColor = running ? new Vector4(0.35f, 1.0f, 0.35f, 1f) : new Vector4(0.7f, 0.7f, 0.7f, 1f);
         ImGui.TextColored(tickColor, running ? "TICK ON (200ms)" : "tick off");
         ImGui.SameLine();
-        ImGui.TextDisabled($"replans: {planner.ReplanCount}   goal: {planner.ActiveGoal.Kind}");
+        ImGui.TextDisabled(
+            $"replans: {planner.ReplanCount}   goal: {planner.ActiveGoal.Kind}   " +
+            $"last round: {planner.LastCandidatesViable}/{planner.LastCandidatesConsidered} viable");
         if (planner.QueryInFlight)
         {
             ImGui.SameLine();
