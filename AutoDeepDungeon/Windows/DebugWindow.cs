@@ -189,7 +189,7 @@ public sealed class DebugWindow : Window
         ImGui.SameLine();
         ImGui.Text($"waypoints: {exec.WaypointCount}");
         ImGui.SameLine();
-        ImGui.TextDisabled($"stuck events: {exec.StuckEventCount}");
+        ImGui.TextDisabled($"stuck events: {exec.StuckEventCount}   retries: {exec.RetriesUsed}");
         if (exec.LastStuckAt != DateTime.MinValue)
         {
             ImGui.SameLine();

@@ -9,9 +9,12 @@ namespace AutoDeepDungeon.Managers;
 /// <summary>
 /// Thin wrapper over vnavmesh's Path.* / SimpleMove.* IPC. Owns the currently
 /// executing movement command so the rest of the plugin doesn't talk to vnavmesh
-/// directly. Also monitors per-tick progress along the active path and raises
+/// directly. Monitors per-tick progress along the active path and raises
 /// <see cref="StuckDetected"/> when the player hasn't moved far enough within
-/// <see cref="StuckWindow"/> — the planner uses this to trigger a replan.
+/// <see cref="StuckWindow"/>. Attempts a quick self-retry by re-pathing to the
+/// original target up to <see cref="MaxRetries"/> times before giving up —
+/// enough to unblock the common "vnavmesh lost its waypoint" case without
+/// displacing the planner-level replan that lands in Day 4.
 /// </summary>
 public sealed class Executor : IDisposable
 {
@@ -20,15 +23,23 @@ public sealed class Executor : IDisposable
     // round a sharp corner before we declare the path broken.
     private const float MinProgressYalms = 0.5f;
     private static readonly TimeSpan StuckWindow = TimeSpan.FromSeconds(3);
+    private const int MaxRetries = 2;
 
     public event Action? StuckDetected;
 
     public DateTime LastStuckAt { get; private set; } = DateTime.MinValue;
     public int StuckEventCount { get; private set; }
+    public int RetriesUsed { get; private set; }
 
     private bool watching;
     private DateTime lastProgressUtc;
     private Vector3 lastSampledPos;
+
+    // Remembered so we can re-path on stuck without the caller re-issuing.
+    // Only populated for Start(target) — StartWaypoints paths can't be retried
+    // without help from the planner, and Day 4 will own that case.
+    private Vector3? lastTarget;
+    private bool lastFly;
 
     public Executor()
     {
@@ -58,22 +69,12 @@ public sealed class Executor : IDisposable
     /// <summary>Ask vnavmesh to pathfind from the player to <paramref name="target"/> and walk it.</summary>
     public bool Start(Vector3 target, bool fly = false)
     {
-        if (!Plugin.Vnav.IsReady)
-        {
-            Svc.Log.Warning("[Executor] Start skipped — vnavmesh not ready.");
-            return false;
-        }
-        try
-        {
-            var started = Plugin.Vnav.Raw.PathfindAndMoveTo?.Invoke(target, fly) ?? false;
-            if (started) BeginWatch();
-            return started;
-        }
-        catch (Exception ex)
-        {
-            Svc.Log.Warning($"[Executor] Start({target}) failed: {ex.Message}");
-            return false;
-        }
+        // User-initiated Start resets the retry budget; retries reuse the
+        // internal path below and leave lastTarget/retriesUsed alone.
+        lastTarget = target;
+        lastFly = fly;
+        RetriesUsed = 0;
+        return StartInternal(target, fly);
     }
 
     /// <summary>Walk a pre-computed waypoint list (e.g. PathPlanner output in M2 day 3+).</summary>
@@ -85,6 +86,10 @@ public sealed class Executor : IDisposable
             return false;
         }
         if (waypoints is null || waypoints.Count == 0) return false;
+        // Pre-computed waypoints belong to the planner; clear target-based retry
+        // state so a later stuck event doesn't accidentally repath via PathfindAndMoveTo.
+        lastTarget = null;
+        RetriesUsed = 0;
         try
         {
             Plugin.Vnav.Raw.MoveTo?.Invoke(waypoints, fly);
@@ -101,6 +106,7 @@ public sealed class Executor : IDisposable
     public void Stop()
     {
         watching = false;
+        lastTarget = null;
         if (!Plugin.Vnav.IsReady) return;
         try { Plugin.Vnav.Raw.Stop?.Invoke(); }
         catch (Exception ex) { Svc.Log.Warning($"[Executor] Stop failed: {ex.Message}"); }
@@ -110,6 +116,26 @@ public sealed class Executor : IDisposable
     {
         Svc.Framework.Update -= Tick;
         Stop();
+    }
+
+    private bool StartInternal(Vector3 target, bool fly)
+    {
+        if (!Plugin.Vnav.IsReady)
+        {
+            Svc.Log.Warning("[Executor] Start skipped — vnavmesh not ready.");
+            return false;
+        }
+        try
+        {
+            var started = Plugin.Vnav.Raw.PathfindAndMoveTo?.Invoke(target, fly) ?? false;
+            if (started) BeginWatch();
+            return started;
+        }
+        catch (Exception ex)
+        {
+            Svc.Log.Warning($"[Executor] Start({target}) failed: {ex.Message}");
+            return false;
+        }
     }
 
     private void BeginWatch()
@@ -142,5 +168,17 @@ public sealed class Executor : IDisposable
         Svc.Log.Warning(
             $"[Executor] Stuck: <{MinProgressYalms}y moved in {StuckWindow.TotalSeconds:F0}s while path running (event #{StuckEventCount}).");
         StuckDetected?.Invoke();
+
+        if (lastTarget is { } tgt && RetriesUsed < MaxRetries)
+        {
+            RetriesUsed++;
+            Svc.Log.Information($"[Executor] Auto-retrying path ({RetriesUsed}/{MaxRetries}) to {tgt}.");
+            StartInternal(tgt, lastFly);
+        }
+        else if (lastTarget is not null)
+        {
+            Svc.Log.Warning($"[Executor] Retry budget exhausted ({MaxRetries}); giving up.");
+            lastTarget = null;
+        }
     }
 }
