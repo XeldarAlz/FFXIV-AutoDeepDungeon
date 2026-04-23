@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Threading;
 using System.Threading.Tasks;
 using AutoDeepDungeon.Data;
 using Dalamud.Plugin.Services;
@@ -88,6 +89,11 @@ public sealed class PathPlanner : IDisposable
     private PlanGoal activeGoal = PlanGoal.None;
     private DateTime nextTickUtc = DateTime.MinValue;
     private bool disposed;
+    // PlanOnce sets this to 1; the next EvaluateAndStore exchanges it back to
+    // 0 and, if it read 1, skips the hysteresis gate so Current is force-
+    // updated. Int-with-Interlocked because the flag can be set from the UI
+    // thread while the background evaluation thread reads it.
+    private int forceNextSwapFlag;
 
     public PathPlanner()
     {
@@ -97,8 +103,14 @@ public sealed class PathPlanner : IDisposable
     }
 
     /// <summary>Kick a one-shot plan toward <paramref name="goal"/>. Result lands in
-    /// <see cref="Current"/> once vnavmesh resolves.</summary>
-    public void PlanOnce(PlanGoal goal) => KickPlan(goal);
+    /// <see cref="Current"/> once vnavmesh resolves — bypasses hysteresis so the
+    /// user's manual click always swaps in the fresh plan, even if the tick's
+    /// automatic evaluation would otherwise find it too similar to swap.</summary>
+    public void PlanOnce(PlanGoal goal)
+    {
+        Interlocked.Exchange(ref forceNextSwapFlag, 1);
+        KickPlan(goal);
+    }
 
     /// <summary>Start the 200ms auto-replan loop toward <paramref name="goal"/>.</summary>
     public void Enable(PlanGoal goal)
@@ -245,7 +257,8 @@ public sealed class PathPlanner : IDisposable
             var freshPlan = new Plan(goal, from, best.Value.Via, best.Value.Waypoints, best.Value.Score, DateTime.UtcNow);
             if (AutoDrive) MaybeDrive(freshPlan);
 
-            if (!ShouldSwap(currentPlan, goal, best.Value.Score)) return;
+            var forceSwap = Interlocked.Exchange(ref forceNextSwapFlag, 0) == 1;
+            if (!forceSwap && !ShouldSwap(currentPlan, goal, best.Value.Score)) return;
 
             Current = freshPlan;
             ReplanCount++;
