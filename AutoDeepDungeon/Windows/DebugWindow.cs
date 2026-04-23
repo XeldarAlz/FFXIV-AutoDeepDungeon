@@ -40,6 +40,11 @@ public sealed class DebugWindow : Window
             DrawFloorScan();
         }
 
+        if (ImGui.CollapsingHeader("Executor", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            DrawExecutor();
+        }
+
         if (ImGui.CollapsingHeader("IPC readiness"))
         {
             DrawIpcRow(Plugin.Vnav);
@@ -173,6 +178,60 @@ public sealed class DebugWindow : Window
         {
             ImGui.Text($"Passage: DataId={p.DataId}  Dist={Vector3.Distance(f.SelfPosition, p.Position):F1}y  EventState={p.EventState}  Active={p.Active}");
         }
+    }
+
+    private static void DrawExecutor()
+    {
+        var exec = Plugin.Exec;
+        var running = exec.IsRunning;
+        var color = running ? new Vector4(0.35f, 1.0f, 0.35f, 1.0f) : new Vector4(0.7f, 0.7f, 0.7f, 1f);
+        ImGui.TextColored(color, running ? "RUNNING" : "idle");
+        ImGui.SameLine();
+        ImGui.Text($"waypoints: {exec.WaypointCount}");
+        ImGui.SameLine();
+        ImGui.TextDisabled($"stuck events: {exec.StuckEventCount}");
+        if (exec.LastStuckAt != DateTime.MinValue)
+        {
+            ImGui.SameLine();
+            var ago = (DateTime.UtcNow - exec.LastStuckAt).TotalSeconds;
+            ImGui.TextDisabled($"(last {ago:F0}s ago)");
+        }
+
+        var vnavReady = Plugin.Vnav.IsReady;
+        if (!vnavReady)
+        {
+            ImGui.TextDisabled("vnavmesh IPC not ready — controls disabled.");
+            return;
+        }
+
+        // Target of last user click — vnav can path to any Vector3, so the simplest
+        // manual test is "walk to whatever the client currently has targeted".
+        var target = Svc.Targets.Target;
+        if (target != null)
+        {
+            var dist = Vector3.Distance(Svc.ClientState.LocalPlayer?.Position ?? Vector3.Zero, target.Position);
+            ImGui.Text($"Target: {target.Name.TextValue}  ({dist:F1}y)");
+            if (ImGui.Button("Walk to target"))
+            {
+                exec.Start(target.Position);
+            }
+        }
+        else
+        {
+            ImGui.TextDisabled("No target selected — click a mob/NPC to enable 'Walk to target'.");
+        }
+
+        var passage = Plugin.Floor.Current.Passage;
+        if (passage is not null)
+        {
+            ImGui.SameLine();
+            if (ImGui.Button("Walk to passage"))
+            {
+                exec.Start(passage.Position);
+            }
+        }
+
+        if (ImGui.Button("Stop")) exec.Stop();
     }
 
     private static void DrawEObjList(string label, System.Collections.Generic.IReadOnlyList<Data.EObjEntity> items, Vector3 self)
